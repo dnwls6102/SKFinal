@@ -1,58 +1,51 @@
 .page {
-  padding: 28px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(94, 146, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, #f3efe4 0%, #efe9dd 100%);
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 22px;
-  margin-bottom: 22px;
+.viewport {
+  position: relative;
+  min-height: 100vh;
+  padding: 24px;
 }
 
-.eyebrow {
-  margin: 0 0 10px;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 12px;
-  font-weight: 700;
+.floatingPrompt {
+  position: fixed;
+  right: 24px;
+  top: 24px;
+  z-index: 40;
+  width: min(420px, calc(100vw - 48px));
+  padding: 16px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 252, 246, 0.94);
+  box-shadow: 0 20px 50px rgba(27, 31, 35, 0.14);
+  backdrop-filter: blur(18px);
 }
 
-.hero h1 {
-  margin: 0;
-  font-size: clamp(2rem, 3vw, 3.4rem);
-  line-height: 1.02;
+.floatingPrompt h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  color: #16202c;
 }
 
-.description {
-  margin: 16px 0 0;
-  max-width: 760px;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.promptBox,
-.builderFrame {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(22px);
-  border-radius: var(--radius);
-}
-
-.promptBox {
-  padding: 18px;
+.floatingPrompt p {
+  margin: 0 0 12px;
+  color: #586474;
+  line-height: 1.6;
 }
 
 .textarea {
   width: 100%;
-  min-height: 124px;
+  min-height: 90px;
+  padding: 12px 14px;
+  border: 1px solid rgba(23, 33, 43, 0.16);
+  border-radius: 16px;
+  background: #ffffff;
+  color: #1a2430;
   resize: vertical;
-  padding: 14px 16px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: var(--panel-strong);
-  color: var(--text);
 }
 
 .promptActions {
@@ -62,196 +55,242 @@
 }
 
 .primaryButton,
+.secondaryButton,
+.chipButton,
+.remoteToggle,
+.remoteAddButton {
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  background: #f7f3ea;
+  color: #16202c;
+}
+
+.primaryButton,
 .secondaryButton {
   border-radius: 999px;
   padding: 10px 16px;
-  border: 1px solid transparent;
 }
 
 .primaryButton {
-  background: var(--accent);
-  color: #042018;
-  font-weight: 700;
-}
-
-.secondaryButton {
-  background: transparent;
-  color: var(--text);
-  border-color: var(--line-strong);
+  background: #16202c;
+  color: #f7f3ea;
 }
 
 .status {
   margin: 12px 0 0;
-  color: var(--muted);
+  color: #677487;
   font-size: 14px;
 }
 
-.builderFrame {
-  overflow: hidden;
-}
-
-.topBar {
+.canvasWrap {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.topBarMeta {
-  display: flex;
-  gap: 16px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.builderGrid {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
-  min-height: 720px;
-}
-
-.panel {
-  padding: 16px;
-  border-right: 1px solid var(--line);
-}
-
-.panelRight {
-  padding: 16px;
-  border-left: 1px solid var(--line);
-}
-
-.sectionTitle {
-  margin: 0 0 14px;
-  font-size: 15px;
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.paletteList,
-.fieldList {
-  display: grid;
-  gap: 10px;
-}
-
-.paletteItem,
-.fieldCard,
-.emptyCard {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(14, 25, 44, 0.88);
-}
-
-.paletteItem {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 14px;
-  text-align: left;
-}
-
-.paletteName {
-  font-weight: 700;
-}
-
-.paletteDesc {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
+  justify-content: center;
+  padding: 120px 24px 60px;
 }
 
 .canvas {
-  min-height: 720px;
-}
-
-.nodeCard {
-  min-width: 220px;
-  border-radius: 18px;
-  border: 1px solid var(--line);
-  background: rgba(11, 20, 36, 0.96);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18);
+  position: relative;
+  min-height: 880px;
+  border: 2px dashed rgba(23, 33, 43, 0.12);
+  box-shadow: 0 32px 80px rgba(38, 42, 48, 0.12);
   overflow: hidden;
 }
 
-.nodeHeader {
+.canvasHint {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 252, 246, 0.86);
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  color: #677487;
+  font-size: 13px;
+}
+
+.element {
+  position: absolute;
+  border: 1px solid transparent;
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.elementSelected {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.16);
+}
+
+.elementInner {
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.elementHeading {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.elementButton {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
+  justify-content: center;
+  font-weight: 600;
 }
 
-.nodeBody {
-  padding: 14px 12px;
+.elementImage {
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(23, 33, 43, 0.2);
+  background:
+    linear-gradient(135deg, rgba(178, 204, 232, 0.42), rgba(255, 255, 255, 0.84)),
+    repeating-linear-gradient(
+      45deg,
+      rgba(23, 33, 43, 0.02) 0,
+      rgba(23, 33, 43, 0.02) 12px,
+      transparent 12px,
+      transparent 24px
+    );
 }
 
-.nodeTitle {
-  margin: 0;
-  font-size: 16px;
+.remote {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
 }
 
-.nodeText {
-  margin: 8px 0 0;
-  color: var(--muted);
+.remoteToggle {
+  width: 78px;
+  min-height: 260px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  border-radius: 18px;
+  font-size: 34px;
+  padding: 18px 12px;
+  background: linear-gradient(180deg, #dfead5, #d7e4cf);
+}
+
+.remotePanel {
+  width: min(360px, calc(100vw - 126px));
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  background: rgba(255, 252, 246, 0.96);
+  box-shadow: 0 24px 60px rgba(27, 31, 35, 0.14);
+}
+
+.remotePanel h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  color: #16202c;
+}
+
+.remotePanel p {
+  margin: 0 0 14px;
+  color: #677487;
+  font-size: 14px;
+}
+
+.remoteSection + .remoteSection {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(23, 33, 43, 0.08);
+}
+
+.remoteSectionTitle {
+  margin: 0 0 10px;
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #677487;
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
+.remoteAddGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.remoteAddButton {
+  padding: 12px;
+  border-radius: 16px;
+  text-align: left;
+  background: #ffffff;
+}
+
+.remoteField {
+  display: grid;
+  gap: 8px;
+}
+
+.remoteField + .remoteField {
+  margin-top: 10px;
+}
+
+.remoteLabel {
+  font-size: 13px;
+  color: #526071;
 }
 
 .input,
 .select {
   width: 100%;
-  margin-top: 6px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--panel-strong);
-  color: var(--text);
   padding: 10px 12px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #16202c;
 }
 
-.fieldCard {
-  padding: 12px;
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.fieldLabel {
-  display: block;
-  color: var(--muted);
-  font-size: 13px;
+.colorSwatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2px solid rgba(23, 33, 43, 0.14);
 }
 
-.emptyCard {
-  padding: 18px;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-@media (max-width: 1180px) {
-  .hero,
-  .builderGrid {
-    grid-template-columns: 1fr;
+@media (max-width: 960px) {
+  .viewport {
+    padding: 16px;
   }
 
-  .panel,
-  .panelRight {
-    border: 0;
-    border-bottom: 1px solid var(--line);
+  .floatingPrompt {
+    position: static;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .canvasWrap {
+    padding: 12px 0 120px;
+  }
+
+  .remote {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    gap: 10px;
+  }
+
+  .remoteToggle {
+    width: 64px;
+    min-height: 220px;
+    font-size: 28px;
+  }
+
+  .remotePanel {
+    width: calc(100vw - 98px);
   }
 }

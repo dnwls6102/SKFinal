@@ -2,9 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { BuilderCanvas } from "@/components/builder/canvas";
-import { LeftPalette } from "@/components/builder/left-palette";
-import { RightInspector } from "@/components/builder/right-inspector";
-import { TopBar } from "@/components/builder/topbar";
+import { FloatingRemote } from "@/components/builder/floating-remote";
 import { createEmptyProject } from "@/lib/runtime/create-empty-project";
 import { loadProjectFromStorage, saveProjectToStorage } from "@/lib/runtime/storage";
 import { useBuilderStore } from "@/store/builder-store";
@@ -77,20 +75,14 @@ export function BuilderShell() {
 
   return (
     <main className={styles.page}>
-      <section className={styles.hero}>
-        <div>
-          <p className={styles.eyebrow}>Prototype Builder</p>
-          <h1>Compose blocks and actions to build a web prototype fast</h1>
-          <p className={styles.description}>
-            Place predefined blocks on a canvas and attach constrained actions to each one.
-            This first cut focuses on the editor shell and an AI-generated draft workflow.
-          </p>
-        </div>
-        <div className={styles.promptBox}>
+      <section className={styles.viewport}>
+        <div className={styles.floatingPrompt}>
+          <h1>Prototype Builder</h1>
+          <p>The whole page is editable now. Drag real page elements onto the canvas and tune them with the remote.</p>
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Example: inquiry dashboard, admin member search, FAQ chatbot landing"
+            placeholder="Example: hero landing page, admin dashboard shell, FAQ intro page"
             className={styles.textarea}
           />
           <div className={styles.promptActions}>
@@ -105,14 +97,8 @@ export function BuilderShell() {
         </div>
       </section>
 
-      <section className={styles.builderFrame}>
-        <TopBar />
-        <div className={styles.builderGrid}>
-          <LeftPalette />
-          <BuilderCanvas />
-          <RightInspector />
-        </div>
-      </section>
+      <BuilderCanvas />
+      <FloatingRemote />
     </main>
   );
 }

@@ -1,5 +1,6 @@
 export type ActionType = "apiCall" | "dbQuery" | "navigate" | "showModal" | "submitForm";
-export type BlockType = "text" | "table" | "rectangle" | "chat" | "scrollSection";
+export type ElementType = "heading" | "text" | "button" | "card" | "image";
+export type PageSize = "desktop" | "tablet" | "mobile";
 
 export type ActionDefinition = {
   type: ActionType;
@@ -8,45 +9,57 @@ export type ActionDefinition = {
   defaultConfig: Record<string, string | number>;
 };
 
-export type BlockDefinition = {
-  type: BlockType;
+export type ElementDefinition = {
+  type: ElementType;
   label: string;
   description: string;
   defaultProps: {
     label: string;
     description: string;
+    content: string;
+    width: number;
+    height: number;
   };
   allowedActions: ActionType[];
 };
 
-export type BuilderAction = {
+export type PageElementAction = {
   id: string;
   type: ActionType;
   label: string;
   config: Record<string, unknown>;
 };
 
-export type BuilderNodeData = {
-  blockType: BlockType;
+export type PageElement = {
+  id: string;
+  type: ElementType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   label: string;
   description: string;
+  content: string;
+  background: string;
+  color: string;
+  borderRadius: number;
+  fontSize: number;
   allowedActions: ActionType[];
-  actions: BuilderAction[];
+  actions: PageElementAction[];
 };
 
-export type BuilderNode = {
-  id: string;
-  position: {
-    x: number;
-    y: number;
-  };
-  data: BuilderNodeData;
+export type PageSettings = {
+  background: string;
+  pageSize: PageSize;
+  width: number;
+  minHeight: number;
 };
 
 export type BuilderProject = {
   id: string;
   name: string;
   description: string;
-  selectedNodeId: string | null;
-  nodes: BuilderNode[];
+  selectedElementId: string | null;
+  settings: PageSettings;
+  elements: PageElement[];
 };

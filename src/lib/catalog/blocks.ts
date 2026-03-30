@@ -1,53 +1,68 @@
-import type { BlockDefinition } from "@/types/builder";
+import type { ElementDefinition } from "@/types/builder";
 
-export const blockCatalog: BlockDefinition[] = [
+export const blockCatalog: ElementDefinition[] = [
   {
-    type: "text",
-    label: "Text Box",
-    description: "Use for intros, banners, and explanatory copy.",
+    type: "heading",
+    label: "Heading",
+    description: "Use for page titles and section headers.",
     defaultProps: {
-      label: "New Text Block",
-      description: "Write a short message that explains the intent of the screen."
+      label: "Page Heading",
+      description: "A large text block for the top of the page.",
+      content: "Prototype Builder",
+      width: 520,
+      height: 72
     },
     allowedActions: ["navigate", "showModal"]
   },
   {
-    type: "table",
-    label: "Table",
-    description: "Display structured records such as users, inquiries, or orders.",
+    type: "text",
+    label: "Text Box",
+    description: "Use for body text, labels, and short descriptions.",
     defaultProps: {
-      label: "Member List",
-      description: "A table block wired for sample rows and columns."
+      label: "Text Block",
+      description: "A text area for supporting copy.",
+      content: "Add supporting text here.",
+      width: 360,
+      height: 120
     },
-    allowedActions: ["apiCall", "dbQuery"]
+    allowedActions: ["navigate", "showModal"]
   },
   {
-    type: "rectangle",
-    label: "Rectangle Card",
-    description: "Use for KPI summaries and highlighted callouts.",
+    type: "button",
+    label: "Button",
+    description: "Use for call-to-action buttons and menu chips.",
     defaultProps: {
-      label: "Summary Card",
-      description: "Show a key metric or state value."
+      label: "Action Button",
+      description: "A simple clickable action area.",
+      content: "Open Details",
+      width: 220,
+      height: 56
     },
     allowedActions: ["apiCall", "navigate"]
   },
   {
-    type: "chat",
-    label: "Chat Box",
-    description: "Useful for FAQ, support, or AI-response demos.",
+    type: "card",
+    label: "Card",
+    description: "Use for boxes, panels, and grouped content zones.",
     defaultProps: {
-      label: "Support Chatbot",
-      description: "Collect a prompt and show a response thread."
+      label: "Card Panel",
+      description: "A rectangular panel that can highlight content.",
+      content: "Drop content here.",
+      width: 320,
+      height: 180
     },
     allowedActions: ["apiCall", "submitForm"]
   },
   {
-    type: "scrollSection",
-    label: "Scroll Section",
-    description: "Best for long-form landing content or guided narratives.",
+    type: "image",
+    label: "Image",
+    description: "Use for image placeholders, thumbnails, and visual blocks.",
     defaultProps: {
-      label: "Story Section",
-      description: "Reveal content progressively as the user scrolls."
+      label: "Image Placeholder",
+      description: "A visual placeholder block.",
+      content: "Image",
+      width: 280,
+      height: 180
     },
     allowedActions: ["navigate", "showModal"]
   }

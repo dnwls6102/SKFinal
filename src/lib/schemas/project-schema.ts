@@ -7,27 +7,36 @@ export const actionSchema = z.object({
   config: z.record(z.string(), z.any())
 });
 
-export const builderNodeDataSchema = z.object({
-  blockType: z.enum(["text", "table", "rectangle", "chat", "scrollSection"]),
+export const pageElementSchema = z.object({
+  id: z.string(),
+  type: z.enum(["heading", "text", "button", "card", "image"]),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
   label: z.string(),
   description: z.string(),
+  content: z.string(),
+  background: z.string(),
+  color: z.string(),
+  borderRadius: z.number(),
+  fontSize: z.number(),
   allowedActions: z.array(z.enum(["apiCall", "dbQuery", "navigate", "showModal", "submitForm"])),
   actions: z.array(actionSchema)
 });
 
-export const builderNodeSchema = z.object({
-  id: z.string(),
-  position: z.object({
-    x: z.number(),
-    y: z.number()
-  }),
-  data: builderNodeDataSchema
+export const pageSettingsSchema = z.object({
+  background: z.string(),
+  pageSize: z.enum(["desktop", "tablet", "mobile"]),
+  width: z.number(),
+  minHeight: z.number()
 });
 
 export const builderProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
-  selectedNodeId: z.string().nullable(),
-  nodes: z.array(builderNodeSchema)
+  selectedElementId: z.string().nullable(),
+  settings: pageSettingsSchema,
+  elements: z.array(pageElementSchema)
 });
