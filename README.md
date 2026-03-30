@@ -1,37 +1,47 @@
 # Weekly Report RAG
 
-사용자가 이번 주에 작업한 문서와 코드를 업로드하면, 업로드 자료를 RAG해서 지정한 양식에 맞는 주간보고를 생성하는 Streamlit 프로젝트입니다.
+업로드한 문서와 GitHub 커밋 메시지를 바탕으로, 지정한 양식에 맞는 주간보고를 생성하는 Streamlit 프로젝트입니다.
 
 ## 구성
 
-- `app.py`: Streamlit UI
+- `app.py`: Streamlit UI, GitHub OAuth 로그인, 주간보고 생성 진입점
+- `github_integration.py`: GitHub OAuth 및 이번 주 커밋 메시지 수집
 - `loaders.py`: PDF, DOCX, 코드/텍스트 파일 로더
 - `rag_pipeline.py`: LangGraph 기반 질의 생성 -> 검색 -> 보고서 작성 파이프라인
 
 ## 설치
 
 ```powershell
-python -m pip install --user -r requirements.txt
-copy .env.example .env
+.\.venv\Scripts\pip.exe install -r requirements.txt
 ```
 
-`.env` 또는 시스템 환경변수에 `GOOGLE_API_KEY`를 설정해야 합니다.
+## 환경변수
+
+`.env`에 아래 값을 설정합니다.
+
+```env
+GOOGLE_API_KEY=your_google_api_key
+GEMINI_MODEL=gemini-3-flash-preview
+GITHUB_CLIENT_ID=your_github_oauth_client_id
+GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+GITHUB_REDIRECT_URI=http://localhost:8501
+```
+
+## GitHub OAuth 설정
+
+GitHub OAuth App의 callback URL을 `GITHUB_REDIRECT_URI`와 동일하게 맞춰야 합니다.
+로컬 기본값은 `http://localhost:8501`입니다.
+
+현재 구현은 GitHub OAuth 로그인 후 `사용자가 접근 가능한 레포`를 조회하고, 각 레포에서 이번 주 월요일 00:00부터 현재 시각까지의 커밋 메시지를 가져옵니다.
+시간 기준은 `Asia/Seoul`입니다.
 
 ## 실행
 
 ```powershell
-streamlit run app.py
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
-## 동작 방식
+## 참고
 
-1. 사용자가 문서 또는 코드 파일을 업로드합니다.
-2. 파일 내용을 텍스트로 추출하고 chunk 단위로 분할합니다.
-3. LangGraph가 주간보고 양식 기반 검색 질의를 생성합니다.
-4. BM25 기반으로 관련 chunk를 검색합니다.
-5. Gemini가 검색 근거를 바탕으로 주간보고를 작성합니다.
-
-## 지원 파일
-
-- 문서: `pdf`, `docx`, `txt`, `md`
-- 코드/설정: `py`, `js`, `ts`, `tsx`, `jsx`, `java`, `go`, `rs`, `sql`, `json`, `yaml`, `yml`, `css`, `html`, `ps1`
+- 비공개 레포까지 포함하려면 GitHub OAuth App 권한과 계정 접근 권한이 필요합니다.
+- 현재 OAuth scope는 `read:user repo`를 사용합니다.
