@@ -86,7 +86,7 @@ def build_login_url() -> str:
     params = {
         "client_id": config["client_id"],
         "redirect_uri": config["redirect_uri"],
-        "scope": "read:user repo",
+        "scope": "read:user read:org repo",
         "state": state,
         "allow_signup": "true",
     }
@@ -200,6 +200,12 @@ def fetch_user_repositories(token: str) -> list[dict[str, object]]:
     return repos
 
 
+def fetch_user_orgs(token: str) -> list[dict[str, object]]:
+    orgs = _paginate(f"{GITHUB_API_BASE}/user/orgs", token)
+    orgs.sort(key=lambda org: str(org["login"]).lower())
+    return orgs
+
+
 def get_current_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
     current = now.astimezone(KST) if now else datetime.now(KST)
     start_of_week = datetime.combine(
@@ -231,7 +237,6 @@ def fetch_weekly_commits(token: str, username: str, selected_repo_full_names: se
             f"{GITHUB_API_BASE}/repos/{owner}/{name}/commits",
             token,
             params={
-                "author": username,
                 "since": _to_github_timestamp(week_start),
                 "until": _to_github_timestamp(week_end),
             },

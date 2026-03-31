@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from github_integration import (
@@ -14,6 +15,7 @@ from github_integration import (
     commit_documents,
     exchange_code_for_token,
     fetch_authenticated_user,
+    fetch_user_orgs,
     fetch_user_repositories,
     fetch_weekly_commits,
     get_current_week_range,
@@ -36,6 +38,7 @@ def _clear_github_session_state() -> None:
     for key in (
         "github_token",
         "github_user",
+        "github_orgs",
         "github_repos",
         "weekly_commits",
         "all_weekly_commits",
@@ -96,6 +99,7 @@ def _handle_github_oauth_callback() -> None:
 
     st.session_state["github_token"] = token
     st.session_state["github_user"] = user
+    st.session_state.pop("github_orgs", None)
     st.session_state.pop("github_repos", None)
     st.session_state.pop("weekly_commits", None)
     st.session_state.pop("all_weekly_commits", None)
@@ -112,8 +116,25 @@ def _load_repositories(token: str) -> list[dict[str, object]]:
     return repos
 
 
-def _build_repo_groups(repos: list[dict[str, object]], user_login: str) -> dict[str, list[str]]:
-    grouped_repos: dict[str, list[str]] = {}
+def _load_orgs(token: str) -> list[dict[str, object]]:
+    orgs = st.session_state.get("github_orgs")
+    if orgs is None:
+        orgs = fetch_user_orgs(token)
+        st.session_state["github_orgs"] = orgs
+    return orgs
+
+
+def _build_repo_groups(
+    repos: list[dict[str, object]],
+    orgs: list[dict[str, object]],
+    user_login: str,
+) -> dict[str, list[str]]:
+    grouped_repos: dict[str, list[str]] = {"개인": []}
+    for org in orgs:
+        login = str(org.get("login", "")).strip()
+        if login:
+            grouped_repos[f"조직: {login}"] = []
+
     for repo in repos:
         repo_name = str(repo["full_name"])
         owner = repo.get("owner", {})
@@ -122,23 +143,27 @@ def _build_repo_groups(repos: list[dict[str, object]], user_login: str) -> dict[
 
         if owner_type == "Organization":
             group_name = f"조직: {owner_login}"
-        elif owner_login.lower() == user_login.lower():
-            group_name = "개인"
         else:
-            group_name = f"개인/기타: {owner_login}"
+            group_name = "개인"
 
         grouped_repos.setdefault(group_name, []).append(repo_name)
-    return dict(sorted(grouped_repos.items(), key=lambda item: item[0].lower()))
+
+    sorted_groups: dict[str, list[str]] = {}
+    sorted_groups["개인"] = sorted(grouped_repos.get("개인", []), key=str.lower)
+    org_group_names = sorted([name for name in grouped_repos.keys() if name != "개인"], key=str.lower)
+    for name in org_group_names:
+        sorted_groups[name] = sorted(grouped_repos[name], key=str.lower)
+    return sorted_groups
 
 
-def _render_group_selection(repos: list[dict[str, object]]) -> tuple[set[str], dict[str, list[str]]]:
+def _render_group_selection(
+    repos: list[dict[str, object]],
+    orgs: list[dict[str, object]],
+) -> tuple[set[str], dict[str, list[str]]]:
     st.write(f"조회 가능한 레포 수: {len(repos)}")
-    if not repos:
-        st.info("조회 가능한 레포가 없습니다.")
-        return set(), {}
 
     user_login = str(st.session_state.get("github_user", {}).get("login", ""))
-    grouped_repos = _build_repo_groups(repos, user_login)
+    grouped_repos = _build_repo_groups(repos, orgs, user_login)
     group_names = list(grouped_repos.keys())
 
     stored_groups = st.session_state.get("selected_repo_groups")
@@ -162,10 +187,9 @@ def _render_group_selection(repos: list[dict[str, object]]) -> tuple[set[str], d
     selected_groups = st.session_state["selected_repo_groups"]
     with st.expander("대상 그룹 선택", expanded=False):
         for group_name in group_names:
-            repo_count = len(grouped_repos[group_name])
             checked = group_name in selected_groups
             new_value = st.checkbox(
-                f"{group_name} ({repo_count})",
+                group_name,
                 value=checked,
                 key=f"group_checkbox::{group_name}",
             )
@@ -181,13 +205,43 @@ def _render_group_selection(repos: list[dict[str, object]]) -> tuple[set[str], d
         for repo_name in grouped_repos[group_name]
     }
 
-    st.caption(f"선택된 그룹: {len(selected_groups)} / {len(group_names)}")
-    st.caption(f"포함된 레포: {len(selected_repos)} / {sum(len(v) for v in grouped_repos.values())}")
+    if not repos:
+        st.info("조회 가능한 레포가 없습니다.")
     return selected_repos, grouped_repos
 
 
 def _filter_commits_by_selected_repos(commits, selected_repos: set[str]):
     return [commit for commit in commits if commit.repo_full_name in selected_repos]
+
+
+def _render_commit_list(commits) -> None:
+    items: list[str] = []
+    for idx, commit in enumerate(commits, start=1):
+        message_html = (
+            commit.message.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+        items.append(
+            f"""
+            <div style="padding:12px 14px;border-bottom:1px solid #e5e7eb;">
+              <div style="font-weight:600;margin-bottom:4px;">{idx}. {commit.repo_full_name}</div>
+              <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">{commit.author_date[:10]}</div>
+              <div style="white-space:normal;line-height:1.5;">{message_html}</div>
+              <div style="margin-top:8px;font-size:12px;">
+                <a href="{commit.url}" target="_blank" style="color:#2563eb;text-decoration:none;">커밋 보기</a>
+              </div>
+            </div>
+            """
+        )
+
+    html = f"""
+    <div style="max-height:420px; overflow-y:auto; border:1px solid #d1d5db; border-radius:10px; background:#ffffff;">
+      {''.join(items)}
+    </div>
+    """
+    components.html(html, height=440, scrolling=False)
 
 
 def _render_github_section():
@@ -218,6 +272,7 @@ def _render_github_section():
             st.rerun()
 
     try:
+        orgs = _load_orgs(token)
         repos = _load_repositories(token)
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code in {401, 403}:
@@ -231,7 +286,7 @@ def _render_github_section():
         st.error(f"레포 목록 조회 중 오류가 발생했습니다: {exc}")
         return []
 
-    selected_repos, _ = _render_group_selection(repos)
+    selected_repos, _ = _render_group_selection(repos, orgs)
 
     week_start, week_end = get_current_week_range()
     st.caption(
@@ -265,11 +320,7 @@ def _render_github_section():
         st.info("선택된 그룹 기준 이번 주 커밋이 없습니다.")
         return []
 
-    for idx, commit in enumerate(commits, start=1):
-        title = f"{idx}. {commit.repo_full_name} / {commit.author_date[:10]}"
-        with st.expander(title):
-            st.code(commit.message, language="text")
-            st.caption(commit.url)
+    _render_commit_list(commits)
 
     return commit_documents(commits)
 
