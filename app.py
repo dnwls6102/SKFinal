@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import tempfile
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from dotenv import load_dotenv
 from github_integration import (
     GitHubOAuthError,
     build_login_url,
+    clear_commit_cache,
     clear_saved_session,
     commit_documents,
     exchange_code_for_token,
@@ -19,7 +21,9 @@ from github_integration import (
     fetch_user_repositories,
     fetch_weekly_commits,
     get_current_week_range,
+    load_commit_cache,
     load_saved_session,
+    save_commit_cache,
     save_session,
 )
 from loaders import load_documents
@@ -28,10 +32,13 @@ from rag_pipeline import generate_weekly_report
 
 load_dotenv()
 
-st.set_page_config(
-    page_title="Weekly Report RAG",
-    layout="wide",
-)
+st.set_page_config(page_title="Weekly Report RAG", layout="wide")
+
+DEFAULT_TEMPLATE_FIELDS = [
+    "업무 내용 및 활동",
+    "성공적으로 잘 수행했다고 생각하는 점",
+    "스스로 부족하다고 생각하는 점/보완 계획",
+]
 
 
 def _clear_github_session_state() -> None:
@@ -43,6 +50,7 @@ def _clear_github_session_state() -> None:
         "weekly_commits",
         "all_weekly_commits",
         "selected_repo_groups",
+        "weekly_commit_cache_key",
     ):
         st.session_state.pop(key, None)
 
@@ -64,7 +72,6 @@ def _bootstrap_saved_session() -> None:
             return
         raise
     except requests.RequestException:
-        # 네트워크가 잠시 막혀도 기존 저장 세션은 유지한다.
         verified_user = user
 
     st.session_state["github_token"] = token
@@ -72,10 +79,9 @@ def _bootstrap_saved_session() -> None:
 
 
 def _handle_github_oauth_callback() -> None:
-    query_params = st.query_params
-    code = query_params.get("code")
-    state = query_params.get("state")
-    error = query_params.get("error")
+    code = st.query_params.get("code")
+    state = st.query_params.get("state")
+    error = st.query_params.get("error")
 
     if error:
         st.error(f"GitHub OAuth 오류: {error}")
@@ -103,6 +109,7 @@ def _handle_github_oauth_callback() -> None:
     st.session_state.pop("github_repos", None)
     st.session_state.pop("weekly_commits", None)
     st.session_state.pop("all_weekly_commits", None)
+    st.session_state.pop("weekly_commit_cache_key", None)
     save_session(token, user)
     st.query_params.clear()
     st.rerun()
@@ -124,11 +131,7 @@ def _load_orgs(token: str) -> list[dict[str, object]]:
     return orgs
 
 
-def _build_repo_groups(
-    repos: list[dict[str, object]],
-    orgs: list[dict[str, object]],
-    user_login: str,
-) -> dict[str, list[str]]:
+def _build_repo_groups(repos: list[dict[str, object]], orgs: list[dict[str, object]]) -> dict[str, list[str]]:
     grouped_repos: dict[str, list[str]] = {"개인": []}
     for org in orgs:
         login = str(org.get("login", "")).strip()
@@ -140,30 +143,17 @@ def _build_repo_groups(
         owner = repo.get("owner", {})
         owner_login = str(owner.get("login", "unknown"))
         owner_type = str(owner.get("type", ""))
-
-        if owner_type == "Organization":
-            group_name = f"조직: {owner_login}"
-        else:
-            group_name = "개인"
-
+        group_name = f"조직: {owner_login}" if owner_type == "Organization" else "개인"
         grouped_repos.setdefault(group_name, []).append(repo_name)
 
-    sorted_groups: dict[str, list[str]] = {}
-    sorted_groups["개인"] = sorted(grouped_repos.get("개인", []), key=str.lower)
-    org_group_names = sorted([name for name in grouped_repos.keys() if name != "개인"], key=str.lower)
-    for name in org_group_names:
-        sorted_groups[name] = sorted(grouped_repos[name], key=str.lower)
-    return sorted_groups
+    ordered = {"개인": sorted(grouped_repos.get("개인", []), key=str.lower)}
+    for name in sorted((item for item in grouped_repos.keys() if item != "개인"), key=str.lower):
+        ordered[name] = sorted(grouped_repos[name], key=str.lower)
+    return ordered
 
 
-def _render_group_selection(
-    repos: list[dict[str, object]],
-    orgs: list[dict[str, object]],
-) -> tuple[set[str], dict[str, list[str]]]:
-    st.write(f"조회 가능한 레포 수: {len(repos)}")
-
-    user_login = str(st.session_state.get("github_user", {}).get("login", ""))
-    grouped_repos = _build_repo_groups(repos, orgs, user_login)
+def _render_group_selection(repos: list[dict[str, object]], orgs: list[dict[str, object]]) -> set[str]:
+    grouped_repos = _build_repo_groups(repos, orgs)
     group_names = list(grouped_repos.keys())
 
     stored_groups = st.session_state.get("selected_repo_groups")
@@ -185,63 +175,45 @@ def _render_group_selection(
             st.session_state["selected_repo_groups"] = set()
 
     selected_groups = st.session_state["selected_repo_groups"]
-    with st.expander("대상 그룹 선택", expanded=False):
+    with st.expander("개인/조직 선택", expanded=False):
         for group_name in group_names:
             checked = group_name in selected_groups
-            new_value = st.checkbox(
-                group_name,
-                value=checked,
-                key=f"group_checkbox::{group_name}",
-            )
-            if new_value:
+            if st.checkbox(group_name, value=checked, key=f"group_checkbox::{group_name}"):
                 selected_groups.add(group_name)
             else:
                 selected_groups.discard(group_name)
 
     st.session_state["selected_repo_groups"] = selected_groups
-    selected_repos = {
+    return {
         repo_name
         for group_name in selected_groups
         for repo_name in grouped_repos[group_name]
     }
 
-    if not repos:
-        st.info("조회 가능한 레포가 없습니다.")
-    return selected_repos, grouped_repos
-
-
-def _filter_commits_by_selected_repos(commits, selected_repos: set[str]):
-    return [commit for commit in commits if commit.repo_full_name in selected_repos]
-
 
 def _render_commit_list(commits) -> None:
     items: list[str] = []
     for idx, commit in enumerate(commits, start=1):
-        message_html = (
-            commit.message.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
-        )
+        message_html = html.escape(commit.message).replace("\n", "<br>")
         items.append(
             f"""
             <div style="padding:12px 14px;border-bottom:1px solid #e5e7eb;">
-              <div style="font-weight:600;margin-bottom:4px;">{idx}. {commit.repo_full_name}</div>
-              <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">{commit.author_date[:10]}</div>
+              <div style="font-weight:600;margin-bottom:4px;">{idx}. {html.escape(commit.repo_full_name)}</div>
+              <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">{html.escape(commit.author_date[:10])}</div>
               <div style="white-space:normal;line-height:1.5;">{message_html}</div>
               <div style="margin-top:8px;font-size:12px;">
-                <a href="{commit.url}" target="_blank" style="color:#2563eb;text-decoration:none;">커밋 보기</a>
+                <a href="{html.escape(commit.url)}" target="_blank" style="color:#2563eb;text-decoration:none;">커밋 보기</a>
               </div>
             </div>
             """
         )
 
-    html = f"""
+    html_block = f"""
     <div style="max-height:420px; overflow-y:auto; border:1px solid #d1d5db; border-radius:10px; background:#ffffff;">
       {''.join(items)}
     </div>
     """
-    components.html(html, height=440, scrolling=False)
+    components.html(html_block, height=440, scrolling=False)
 
 
 def _render_github_section():
@@ -269,6 +241,7 @@ def _render_github_section():
         if st.button("GitHub 연결 해제", use_container_width=True):
             _clear_github_session_state()
             clear_saved_session()
+            clear_commit_cache()
             st.rerun()
 
     try:
@@ -277,23 +250,33 @@ def _render_github_section():
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code in {401, 403}:
             clear_saved_session()
+            clear_commit_cache()
             _clear_github_session_state()
             st.error("저장된 GitHub 로그인 정보가 만료되었습니다. 다시 로그인해야 합니다.")
             return []
-        st.error(f"레포 목록 조회 중 오류가 발생했습니다: {exc}")
+        st.error(f"GitHub 데이터 조회 중 오류가 발생했습니다: {exc}")
         return []
     except Exception as exc:
-        st.error(f"레포 목록 조회 중 오류가 발생했습니다: {exc}")
+        st.error(f"GitHub 데이터 조회 중 오류가 발생했습니다: {exc}")
         return []
 
-    selected_repos, _ = _render_group_selection(repos, orgs)
+    selected_repos = _render_group_selection(repos, orgs)
 
     week_start, week_end = get_current_week_range()
-    st.caption(
-        f"조회 범위: {week_start.strftime('%Y-%m-%d %H:%M')} ~ {week_end.strftime('%Y-%m-%d %H:%M')} (Asia/Seoul 기준)"
-    )
+    week_key = week_start.strftime("%Y-%m-%d")
+    st.caption(f"조회 범위: {week_start:%Y-%m-%d %H:%M} ~ {week_end:%Y-%m-%d %H:%M} (Asia/Seoul 기준)")
 
     refresh = st.button("이번 주 커밋 새로고침", use_container_width=True)
+    cache_key_changed = st.session_state.get("weekly_commit_cache_key") != week_key
+    if cache_key_changed:
+        st.session_state.pop("all_weekly_commits", None)
+        st.session_state["weekly_commit_cache_key"] = week_key
+
+    if not refresh and "all_weekly_commits" not in st.session_state:
+        cached_commits = load_commit_cache(str(user["login"]), week_key)
+        if cached_commits is not None:
+            st.session_state["all_weekly_commits"] = cached_commits
+
     if refresh or "all_weekly_commits" not in st.session_state:
         with st.spinner("GitHub에서 이번 주 커밋 메시지를 가져오는 중입니다."):
             try:
@@ -301,6 +284,7 @@ def _render_github_section():
             except requests.HTTPError as exc:
                 if exc.response is not None and exc.response.status_code in {401, 403}:
                     clear_saved_session()
+                    clear_commit_cache()
                     _clear_github_session_state()
                     st.error("저장된 GitHub 로그인 정보가 만료되었습니다. 다시 로그인해야 합니다.")
                     return []
@@ -309,107 +293,121 @@ def _render_github_section():
             except Exception as exc:
                 st.error(f"커밋 조회 중 오류가 발생했습니다: {exc}")
                 return []
+
             st.session_state["all_weekly_commits"] = all_commits
+            save_commit_cache(str(user["login"]), week_key, all_commits)
 
     all_commits = st.session_state.get("all_weekly_commits", [])
-    commits = _filter_commits_by_selected_repos(all_commits, selected_repos)
+    commits = [commit for commit in all_commits if commit.repo_full_name in selected_repos]
     st.session_state["weekly_commits"] = commits
-    st.write(f"이번 주 커밋 수: {len(commits)}")
 
+    st.write(f"이번 주 커밋 수: {len(commits)}")
     if not commits:
         st.info("선택된 그룹 기준 이번 주 커밋이 없습니다.")
         return []
 
     _render_commit_list(commits)
-
     return commit_documents(commits)
 
 
+def _ensure_template_fields() -> None:
+    if "template_fields" not in st.session_state:
+        st.session_state["template_fields"] = list(DEFAULT_TEMPLATE_FIELDS)
+
+
+def _add_template_field() -> None:
+    st.session_state["template_fields"] = [*st.session_state["template_fields"], ""]
+
+
+def _remove_template_field(index: int) -> None:
+    fields = list(st.session_state["template_fields"])
+    if len(fields) <= 1:
+        return
+    fields.pop(index)
+    st.session_state["template_fields"] = fields
+    st.rerun()
+
+
+def _render_template_builder() -> tuple[str, list, list[str]]:
+    _ensure_template_fields()
+
+    st.subheader("주간보고 양식")
+    for idx, field in enumerate(st.session_state["template_fields"]):
+        with st.container(border=True):
+            left, right = st.columns([8, 1])
+            with left:
+                value = st.text_input(
+                    f"항목 {idx + 1}",
+                    value=field,
+                    key=f"template_field_{idx}",
+                    placeholder="예: 업무 내용 및 활동",
+                    label_visibility="collapsed",
+                )
+                st.session_state["template_fields"][idx] = value
+            with right:
+                if st.button("-", key=f"remove_field_{idx}", use_container_width=True):
+                    _remove_template_field(idx)
+
+    st.button("+ 항목 추가", on_click=_add_template_field, use_container_width=True)
+
+    cleaned_fields = [field.strip() for field in st.session_state["template_fields"] if field.strip()]
+    template = "\n\n".join(f"{idx + 1}. {field}\n- " for idx, field in enumerate(cleaned_fields))
+
+    example_files = st.file_uploader(
+        "예시 보고서 파일 업로드",
+        accept_multiple_files=True,
+        type=["xlsx", "pdf", "docx", "txt", "md"],
+        help="업로드한 예시 파일은 주간보고 생성 프롬프트의 few-shot 예시로 사용됩니다.",
+    )
+    return template, example_files or [], cleaned_fields
+
+
 st.title("주간보고 생성기")
-st.caption("업로드한 문서와 GitHub 커밋에서 근거를 찾아, 지정한 양식에 맞는 주간보고를 생성합니다.")
+st.caption("GitHub 커밋을 근거로, 지정한 항목 구조에 맞는 주간보고를 생성합니다.")
 
-github_docs = _render_github_section()
-st.divider()
+left_col, right_col = st.columns([1.2, 1.0], gap="large")
 
-template = st.text_area(
-    "주간보고 양식",
-    height=220,
-    value=(
-        "1. 이번 주 주요 업무\n"
-        "- \n\n"
-        "2. 산출물 및 진행 결과\n"
-        "- \n\n"
-        "3. 이슈 및 리스크\n"
-        "- \n\n"
-        "4. 다음 주 계획\n"
-        "- "
-    ),
-)
+with left_col:
+    github_docs = _render_github_section()
 
-user_context = st.text_area(
-    "추가 설명",
-    height=100,
-    placeholder="프로젝트명, 팀명, 강조해야 할 포인트, 제외할 내용 등을 적으세요.",
-)
-
-uploaded_files = st.file_uploader(
-    "문서/코드 업로드",
-    accept_multiple_files=True,
-    type=[
-        "pdf",
-        "docx",
-        "txt",
-        "md",
-        "py",
-        "js",
-        "ts",
-        "tsx",
-        "jsx",
-        "java",
-        "go",
-        "rs",
-        "sql",
-        "json",
-        "yaml",
-        "yml",
-        "css",
-        "html",
-        "ps1",
-    ],
-)
+with right_col:
+    template, example_files, template_fields = _render_template_builder()
 
 generate = st.button("주간보고 생성", type="primary", use_container_width=True)
 
 if generate:
-    if not uploaded_files and not github_docs:
-        st.error("최소 한 개 이상의 문서/코드 파일 또는 GitHub 커밋 데이터가 필요합니다.")
+    if not github_docs:
+        st.error("GitHub 커밋 데이터가 필요합니다.")
         st.stop()
     if not template.strip():
-        st.error("주간보고 양식을 입력해야 합니다.")
+        st.error("주간보고 항목을 최소 한 개 이상 입력해야 합니다.")
         st.stop()
 
-    with st.spinner("파일 분석과 주간보고 생성을 진행 중입니다."):
+    with st.spinner("주간보고 생성을 진행 중입니다."):
         with tempfile.TemporaryDirectory() as tmp_dir:
             documents = list(github_docs)
-            saved_paths: list[Path] = []
-            for uploaded in uploaded_files or []:
-                path = Path(tmp_dir) / uploaded.name
-                path.write_bytes(uploaded.getbuffer())
-                saved_paths.append(path)
+            example_documents = []
 
-            documents.extend(load_documents(saved_paths))
-            if not documents:
-                st.error("지원되는 텍스트를 추출하지 못했습니다. 파일 형식을 확인하세요.")
-                st.stop()
+            example_paths: list[Path] = []
+            for uploaded in example_files:
+                path = Path(tmp_dir) / f"example_{uploaded.name}"
+                path.write_bytes(uploaded.getbuffer())
+                example_paths.append(path)
+
+            example_documents.extend(load_documents(example_paths))
 
             result = generate_weekly_report(
                 documents=documents,
                 template=template,
-                user_context=user_context,
+                template_fields=template_fields,
+                example_documents=example_documents,
             )
 
     st.subheader("생성된 주간보고")
-    st.text_area("결과", value=result["report"], height=420)
+    st.text_area("결과", value=result["report"], height=420, disabled=True)
+
+    st.subheader("구조화 출력")
+    st.json(result["structured_report"])
 
     st.subheader("RAG 검색 질의")
     for query in result["queries"]:

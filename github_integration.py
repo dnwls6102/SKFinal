@@ -20,6 +20,7 @@ GITHUB_API_BASE = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com/login/oauth"
 KST = ZoneInfo("Asia/Seoul")
 TOKEN_STORE_PATH = Path(".github_oauth_session.json")
+COMMIT_CACHE_PATH = Path(".github_commit_cache.json")
 
 
 class GitHubOAuthError(RuntimeError):
@@ -162,6 +163,49 @@ def save_session(token: str, user: dict[str, object]) -> None:
 def clear_saved_session() -> None:
     if TOKEN_STORE_PATH.exists():
         TOKEN_STORE_PATH.unlink()
+
+
+def load_commit_cache(username: str, week_key: str) -> list[CommitInfo] | None:
+    if not COMMIT_CACHE_PATH.exists():
+        return None
+
+    try:
+        payload = json.loads(COMMIT_CACHE_PATH.read_text(encoding="utf-8"))
+        cached_items = payload.get(username, {}).get(week_key)
+        if not isinstance(cached_items, list):
+            return None
+        return [CommitInfo(**item) for item in cached_items]
+    except Exception:
+        clear_commit_cache()
+        return None
+
+
+def save_commit_cache(username: str, week_key: str, commits: list[CommitInfo]) -> None:
+    try:
+        payload = json.loads(COMMIT_CACHE_PATH.read_text(encoding="utf-8")) if COMMIT_CACHE_PATH.exists() else {}
+    except Exception:
+        payload = {}
+
+    payload.setdefault(username, {})
+    payload[username][week_key] = [
+        {
+            "repo_full_name": commit.repo_full_name,
+            "sha": commit.sha,
+            "message": commit.message,
+            "author_date": commit.author_date,
+            "url": commit.url,
+        }
+        for commit in commits
+    ]
+    COMMIT_CACHE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def clear_commit_cache() -> None:
+    if COMMIT_CACHE_PATH.exists():
+        COMMIT_CACHE_PATH.unlink()
 
 
 def _paginate(url: str, token: str, params: dict[str, object] | None = None) -> list[dict[str, object]]:

@@ -5,6 +5,7 @@ from typing import Iterable
 
 from docx import Document as DocxDocument
 from langchain_core.documents import Document
+from openpyxl import load_workbook
 from pypdf import PdfReader
 
 
@@ -87,6 +88,29 @@ def _load_text(path: Path) -> list[Document]:
     ]
 
 
+def _load_xlsx(path: Path) -> list[Document]:
+    workbook = load_workbook(filename=str(path), data_only=True)
+    docs: list[Document] = []
+    for sheet in workbook.worksheets:
+        rows: list[str] = []
+        for row in sheet.iter_rows():
+            values = [str(cell.value).strip() for cell in row if cell.value is not None and str(cell.value).strip()]
+            if values:
+                rows.append(" | ".join(values))
+
+        text = "\n".join(rows).strip()
+        if not text:
+            continue
+
+        docs.append(
+            Document(
+                page_content=text,
+                metadata={"source": path.name, "type": "xlsx", "sheet": sheet.title},
+            )
+        )
+    return docs
+
+
 def load_documents(paths: Iterable[Path]) -> list[Document]:
     documents: list[Document] = []
     for path in paths:
@@ -95,6 +119,8 @@ def load_documents(paths: Iterable[Path]) -> list[Document]:
             documents.extend(_load_pdf(path))
         elif suffix == ".docx":
             documents.extend(_load_docx(path))
+        elif suffix == ".xlsx":
+            documents.extend(_load_xlsx(path))
         elif suffix in TEXT_EXTENSIONS:
             documents.extend(_load_text(path))
     return documents
