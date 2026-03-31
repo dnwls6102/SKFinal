@@ -8,6 +8,7 @@ import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
@@ -18,6 +19,7 @@ from langchain_core.documents import Document
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com/login/oauth"
 KST = ZoneInfo("Asia/Seoul")
+TOKEN_STORE_PATH = Path(".github_oauth_session.json")
 
 
 class GitHubOAuthError(RuntimeError):
@@ -136,6 +138,32 @@ def fetch_authenticated_user(token: str) -> dict[str, object]:
     return response.json()
 
 
+def load_saved_session() -> tuple[str, dict[str, object]] | None:
+    if not TOKEN_STORE_PATH.exists():
+        return None
+    try:
+        payload = json.loads(TOKEN_STORE_PATH.read_text(encoding="utf-8"))
+        token = str(payload["token"])
+        user = payload["user"]
+    except Exception:
+        clear_saved_session()
+        return None
+    return token, user
+
+
+def save_session(token: str, user: dict[str, object]) -> None:
+    payload = {"token": token, "user": user}
+    TOKEN_STORE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def clear_saved_session() -> None:
+    if TOKEN_STORE_PATH.exists():
+        TOKEN_STORE_PATH.unlink()
+
+
 def _paginate(url: str, token: str, params: dict[str, object] | None = None) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     page = 1
@@ -158,7 +186,7 @@ def _paginate(url: str, token: str, params: dict[str, object] | None = None) -> 
 
 
 def fetch_user_repositories(token: str) -> list[dict[str, object]]:
-    return _paginate(
+    repos = _paginate(
         f"{GITHUB_API_BASE}/user/repos",
         token,
         params={
@@ -168,6 +196,8 @@ def fetch_user_repositories(token: str) -> list[dict[str, object]]:
             "direction": "desc",
         },
     )
+    repos.sort(key=lambda repo: str(repo["full_name"]).lower())
+    return repos
 
 
 def get_current_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
@@ -185,16 +215,18 @@ def _to_github_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_weekly_commits(token: str, username: str) -> list[CommitInfo]:
+def fetch_weekly_commits(token: str, username: str, selected_repo_full_names: set[str] | None = None) -> list[CommitInfo]:
     week_start, week_end = get_current_week_range()
     repos = fetch_user_repositories(token)
 
     commits: list[CommitInfo] = []
     seen: set[str] = set()
     for repo in repos:
+        repo_full_name = str(repo["full_name"])
+        if selected_repo_full_names is not None and repo_full_name not in selected_repo_full_names:
+            continue
         owner = repo["owner"]["login"]
         name = repo["name"]
-        repo_full_name = repo["full_name"]
         commit_items = _paginate(
             f"{GITHUB_API_BASE}/repos/{owner}/{name}/commits",
             token,

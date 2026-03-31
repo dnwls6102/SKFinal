@@ -3,3 +3,5 @@ node_modules
 tsconfig.tsbuildinfo
 .venv
 .env
+.github_oauth_session.json
+__pycache__
