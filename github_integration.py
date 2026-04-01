@@ -68,9 +68,12 @@ def _verify_state(state: str, secret: str, max_age_seconds: int = 600) -> bool:
             return False
         payload = json.loads(raw.decode("utf-8"))
         issued_at = int(payload["iat"])
+        provider = str(payload["provider"])
     except Exception:
         return False
 
+    if provider != "github":
+        return False
     now = int(datetime.now(timezone.utc).timestamp())
     return now - issued_at <= max_age_seconds
 
@@ -79,6 +82,7 @@ def build_login_url() -> str:
     config = get_github_oauth_config()
     state = _sign_state(
         {
+            "provider": "github",
             "nonce": secrets.token_urlsafe(24),
             "iat": int(datetime.now(timezone.utc).timestamp()),
         },
@@ -88,7 +92,7 @@ def build_login_url() -> str:
         "client_id": config["client_id"],
         "redirect_uri": config["redirect_uri"],
         "scope": "read:user read:org repo",
-        "state": state,
+        "state": f"github:{state}",
         "allow_signup": "true",
     }
     return requests.Request("GET", f"{GITHUB_OAUTH_BASE}/authorize", params=params).prepare().url
@@ -104,7 +108,8 @@ def _api_headers(token: str) -> dict[str, str]:
 
 def exchange_code_for_token(code: str, state: str) -> str:
     config = get_github_oauth_config()
-    if not _verify_state(state, config["client_secret"]):
+    signed_state = state.removeprefix("github:")
+    if not _verify_state(signed_state, config["client_secret"]):
         raise GitHubOAuthError("GitHub OAuth state 검증에 실패했습니다.")
 
     response = requests.post(
@@ -115,7 +120,7 @@ def exchange_code_for_token(code: str, state: str) -> str:
             "client_secret": config["client_secret"],
             "code": code,
             "redirect_uri": config["redirect_uri"],
-            "state": state,
+            "state": signed_state,
         },
         timeout=30,
     )
