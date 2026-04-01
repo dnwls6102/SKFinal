@@ -302,12 +302,14 @@ def clear_file_cache(team_id: str | None = None) -> None:
 
 def get_current_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
     current = now.astimezone(KST) if now else datetime.now(KST)
-    start_of_week = datetime.combine(
+    start_of_this_week = datetime.combine(
         (current - timedelta(days=current.weekday())).date(),
         time.min,
         tzinfo=KST,
     )
-    return start_of_week, current
+    start_of_previous_week = start_of_this_week - timedelta(days=7)
+    end_of_previous_week = start_of_this_week - timedelta(seconds=1)
+    return start_of_previous_week, end_of_previous_week
 
 
 def _to_slack_timestamp(value: datetime) -> str:

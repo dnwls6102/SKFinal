@@ -72,19 +72,19 @@ def _clear_github_session_state() -> None:
 
 
 def _clear_slack_session_state(team_id: str | None = None) -> None:
-    base_keys = ["slack_workspaces", "slack_selected_team_id"]
-    for key in base_keys:
-        if team_id is None:
+    if team_id is None:
+        for key in ("slack_selected_team_id",):
             st.session_state.pop(key, None)
 
-    dynamic_prefixes = (
+    prefixes = (
         "slack_channels::",
         "slack_selected_channels::",
         "slack_items::",
         "slack_cache_key::",
+        "slack_refresh_requested::",
     )
     for key in list(st.session_state.keys()):
-        if not any(key.startswith(prefix) for prefix in dynamic_prefixes):
+        if not any(key.startswith(prefix) for prefix in prefixes):
             continue
         if team_id is None or key.endswith(team_id):
             st.session_state.pop(key, None)
@@ -182,10 +182,7 @@ def _handle_slack_oauth_callback() -> None:
 
     save_slack_session(session)
     st.session_state["slack_selected_team_id"] = session.team_id
-    st.session_state.pop(f"slack_channels::{session.team_id}", None)
-    st.session_state.pop(f"slack_selected_channels::{session.team_id}", None)
-    st.session_state.pop(f"slack_items::{session.team_id}", None)
-    st.session_state.pop(f"slack_cache_key::{session.team_id}", None)
+    _clear_slack_session_state(session.team_id)
     st.query_params.clear()
     st.rerun()
 
@@ -216,11 +213,11 @@ def _load_slack_channels(team_id: str, access_token: str) -> list[dict[str, obje
 
 
 def _build_repo_groups(repos: list[dict[str, object]], orgs: list[dict[str, object]]) -> dict[str, list[str]]:
-    grouped_repos: dict[str, list[str]] = {"개인": []}
+    groups: dict[str, list[str]] = {"개인": []}
     for org in orgs:
         login = str(org.get("login", "")).strip()
         if login:
-            grouped_repos[f"조직: {login}"] = []
+            groups[f"조직: {login}"] = []
 
     for repo in repos:
         repo_name = str(repo["full_name"])
@@ -228,11 +225,11 @@ def _build_repo_groups(repos: list[dict[str, object]], orgs: list[dict[str, obje
         owner_login = str(owner.get("login", "unknown"))
         owner_type = str(owner.get("type", ""))
         group_name = f"조직: {owner_login}" if owner_type == "Organization" else "개인"
-        grouped_repos.setdefault(group_name, []).append(repo_name)
+        groups.setdefault(group_name, []).append(repo_name)
 
-    ordered = {"개인": sorted(grouped_repos.get("개인", []), key=str.lower)}
-    for name in sorted((item for item in grouped_repos.keys() if item != "개인"), key=str.lower):
-        ordered[name] = sorted(grouped_repos[name], key=str.lower)
+    ordered = {"개인": sorted(groups.get("개인", []), key=str.lower)}
+    for name in sorted((name for name in groups.keys() if name != "개인"), key=str.lower):
+        ordered[name] = sorted(groups[name], key=str.lower)
     return ordered
 
 
@@ -423,7 +420,7 @@ def _render_github_section():
             st.session_state["all_weekly_commits"] = cached_commits
 
     if refresh or "all_weekly_commits" not in st.session_state:
-        with st.spinner("GitHub에서 이번 주 커밋 메시지를 가져오는 중입니다."):
+        with st.spinner("GitHub에서 커밋 메시지를 가져오는 중입니다."):
             try:
                 all_commits = fetch_weekly_commits(token, str(user["login"]))
             except requests.HTTPError as exc:
@@ -446,9 +443,9 @@ def _render_github_section():
     commits = [commit for commit in all_commits if commit.repo_full_name in selected_repos]
     st.session_state["weekly_commits"] = commits
 
-    st.write(f"이번 주 커밋 수: {len(commits)}")
+    st.write(f"조회된 커밋 수: {len(commits)}")
     if not commits:
-        st.info("선택된 그룹 기준 이번 주 커밋이 없습니다.")
+        st.info("선택된 그룹 기준 커밋이 없습니다.")
         return []
 
     _render_commit_list(commits)
@@ -485,6 +482,7 @@ def _render_slack_section():
     default_team_id = st.session_state.get("slack_selected_team_id", team_ids[0])
     if default_team_id not in team_ids:
         default_team_id = team_ids[0]
+
     selected_team_id = st.selectbox(
         "워크스페이스",
         options=team_ids,
@@ -504,12 +502,17 @@ def _render_slack_section():
             _clear_slack_session_state(selected_team_id)
             st.rerun()
 
+    refresh = st.button("이번 주 Slack 기록 새로고침", key=f"slack_refresh::{selected_team_id}", use_container_width=True)
+    if refresh:
+        st.session_state[f"slack_refresh_requested::{selected_team_id}"] = True
+        st.session_state.pop(f"slack_channels::{selected_team_id}", None)
+        st.session_state.pop(f"slack_selected_channels::{selected_team_id}", None)
+        st.rerun()
+
     try:
         slack_auth_test(selected_session.access_token)
-        channels_state_key = f"slack_channels::{selected_team_id}"
-        refresh_channels = st.session_state.get(f"slack_refresh_requested::{selected_team_id}", False)
-        if refresh_channels:
-            st.session_state.pop(channels_state_key, None)
+        if st.session_state.get(f"slack_refresh_requested::{selected_team_id}", False):
+            st.session_state.pop(f"slack_channels::{selected_team_id}", None)
             st.session_state.pop(f"slack_selected_channels::{selected_team_id}", None)
             st.session_state.pop(f"slack_refresh_requested::{selected_team_id}", None)
         channels = _load_slack_channels(selected_team_id, selected_session.access_token)
@@ -538,24 +541,18 @@ def _render_slack_section():
     items_state_key = f"slack_items::{selected_team_id}"
     st.caption(f"조회 범위: {week_start:%Y-%m-%d %H:%M} ~ {week_end:%Y-%m-%d %H:%M} (Asia/Seoul 기준)")
 
-    refresh = st.button("이번 주 Slack 기록 새로고침", key=f"slack_refresh::{selected_team_id}", use_container_width=True)
-    if refresh:
-        st.session_state[f"slack_refresh_requested::{selected_team_id}"] = True
-        st.session_state.pop(f"slack_channels::{selected_team_id}", None)
-        st.session_state.pop(f"slack_selected_channels::{selected_team_id}", None)
-        st.rerun()
     cache_key_changed = st.session_state.get(cache_state_key) != effective_cache_key
     if cache_key_changed:
         st.session_state.pop(items_state_key, None)
         st.session_state[cache_state_key] = effective_cache_key
 
-    if not refresh and items_state_key not in st.session_state:
+    if items_state_key not in st.session_state:
         cached_items = load_slack_file_cache(selected_team_id, effective_cache_key)
         if cached_items is not None:
             st.session_state[items_state_key] = cached_items
 
     if refresh or items_state_key not in st.session_state:
-        with st.spinner("Slack에서 이번 주 파일과 메시지를 가져오는 중입니다."):
+        with st.spinner("Slack에서 파일과 메시지를 가져오는 중입니다."):
             try:
                 all_items = fetch_weekly_shared_files(selected_session, channel_lookup, selected_channel_ids)
             except SlackOAuthError as exc:
@@ -571,9 +568,9 @@ def _render_slack_section():
     all_items = st.session_state.get(items_state_key, [])
     filtered_items = [item for item in all_items if item.channel_id in selected_channel_ids]
 
-    st.write(f"이번 주 Slack 파일/메시지 수: {len(filtered_items)}")
+    st.write(f"조회된 Slack 파일/메시지 수: {len(filtered_items)}")
     if not filtered_items:
-        st.info("선택된 채널 기준 이번 주 기록이 없습니다.")
+        st.info("선택된 채널 기준 기록이 없습니다.")
         return []
 
     _render_slack_item_list(filtered_items)
@@ -583,6 +580,8 @@ def _render_slack_section():
 def _ensure_template_fields() -> None:
     if "template_fields" not in st.session_state:
         st.session_state["template_fields"] = list(DEFAULT_TEMPLATE_FIELDS)
+    if "generated_report" not in st.session_state:
+        st.session_state["generated_report"] = ""
 
 
 def _add_template_field() -> None:
@@ -674,21 +673,8 @@ if generate:
                 template_fields=template_fields,
                 example_documents=example_documents,
             )
+            st.session_state["generated_report"] = str(result["report"])
 
+if st.session_state.get("generated_report"):
     st.subheader("생성된 주간보고")
-    st.text_area("결과", value=result["report"], height=420, disabled=True)
-
-    st.subheader("구조화 출력")
-    st.json(result["structured_report"])
-
-    st.subheader("RAG 검색 질의")
-    for query in result["queries"]:
-        st.write(f"- {query}")
-
-    st.subheader("참고한 근거")
-    for idx, doc in enumerate(result["retrieved_docs"], start=1):
-        source = doc.metadata.get("source", "unknown")
-        page = doc.metadata.get("page")
-        header = f"{idx}. {source}" + (f" / page {page}" if page else "")
-        with st.expander(header):
-            st.write(doc.page_content)
+    st.text_area("결과", value=st.session_state["generated_report"], height=420)
