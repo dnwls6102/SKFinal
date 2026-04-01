@@ -1,0 +1,20 @@
+{
+  "name": "weekly-report-rag-ui",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack --port 8501",
+    "build": "next build",
+    "start": "next start --port 8501"
+  },
+  "dependencies": {
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "typescript": "^5.9.3"
+  }
+}

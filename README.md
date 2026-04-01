@@ -1,47 +1,63 @@
-# Weekly Report RAG
+# Weekly Report Studio
 
-업로드한 문서와 GitHub 커밋 메시지를 바탕으로, 지정한 양식에 맞는 주간보고를 생성하는 Streamlit 프로젝트입니다.
+GitHub commit history and Slack shared files/messages are collected as evidence and turned into a grounded weekly report.
 
-## 구성
+## Stack
 
-- `app.py`: Streamlit UI, GitHub OAuth 로그인, 주간보고 생성 진입점
-- `github_integration.py`: GitHub OAuth 및 이번 주 커밋 메시지 수집
-- `loaders.py`: PDF, DOCX, 코드/텍스트 파일 로더
-- `rag_pipeline.py`: LangGraph 기반 질의 생성 -> 검색 -> 보고서 작성 파이프라인
+- `app/`, `src/components/`: Next.js frontend on port `8501`
+- `backend_api.py`: FastAPI backend for OAuth, source loading, and report generation
+- `github_integration.py`: GitHub OAuth and weekly commit collection
+- `slack_integration.py`: Slack OAuth and weekly shared file/message collection
+- `rag_pipeline.py`: LangGraph-based grounded report generation pipeline
+- `loaders.py`: PDF, DOCX, XLSX, text example file loaders
 
-## 설치
+## Install
+
+Python dependencies:
 
 ```powershell
 .\.venv\Scripts\pip.exe install -r requirements.txt
 ```
 
-## 환경변수
+Frontend dependencies:
 
-`.env`에 아래 값을 설정합니다.
+```powershell
+npm install
+```
+
+## Environment
+
+Set values in `.env`.
 
 ```env
 GOOGLE_API_KEY=your_google_api_key
 GEMINI_MODEL=gemini-3-flash-preview
-GITHUB_CLIENT_ID=your_github_oauth_client_id
-GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_REDIRECT_URI=http://localhost:8501
+SLACK_CLIENT_ID=your_slack_client_id
+SLACK_CLIENT_SECRET=your_slack_client_secret
+SLACK_REDIRECT_URI=https://your-ngrok-domain.ngrok-free.dev
 ```
 
-## GitHub OAuth 설정
+OAuth redirect targets should continue pointing to the frontend origin on port `8501`. The frontend handles the callback query string and sends the code/state to FastAPI.
 
-GitHub OAuth App의 callback URL을 `GITHUB_REDIRECT_URI`와 동일하게 맞춰야 합니다.
-로컬 기본값은 `http://localhost:8501`입니다.
+## Run
 
-현재 구현은 GitHub OAuth 로그인 후 `사용자가 접근 가능한 레포`를 조회하고, 각 레포에서 이번 주 월요일 00:00부터 현재 시각까지의 커밋 메시지를 가져옵니다.
-시간 기준은 `Asia/Seoul`입니다.
-
-## 실행
+Start the FastAPI backend on port `8000`:
 
 ```powershell
-.\.venv\Scripts\streamlit.exe run app.py
+.\.venv\Scripts\python.exe -m uvicorn backend_api:app --reload --port 8000
 ```
 
-## 참고
+Start the Next.js frontend on port `8501`:
 
-- 비공개 레포까지 포함하려면 GitHub OAuth App 권한과 계정 접근 권한이 필요합니다.
-- 현재 OAuth scope는 `read:user repo`를 사용합니다.
+```powershell
+npm run dev
+```
+
+## Notes
+
+- The frontend proxies `/api/backend/*` to `http://127.0.0.1:8000/*`, so ngrok can stay pointed at the frontend port `8501`.
+- GitHub and Slack sessions are still persisted in the existing local cache/session JSON files.
+- The previous Streamlit app remains in `app.py` for reference, but the active UI is now Next.js.
