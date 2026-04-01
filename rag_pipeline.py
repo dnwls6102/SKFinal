@@ -15,6 +15,7 @@ from langgraph.graph import END, StateGraph
 class ReportState(TypedDict, total=False):
     template: str
     template_fields: list[str]
+    report_style: str
     documents: list[Document]
     example_documents: list[Document]
     chunks: list[Document]
@@ -22,6 +23,22 @@ class ReportState(TypedDict, total=False):
     retrieved_docs: list[Document]
     structured_report: dict[str, str]
     report: str
+
+
+STYLE_INSTRUCTIONS = {
+    "concise": (
+        "예시 보고서보다 더 간결하게 작성한다.\n"
+        "각 항목은 핵심 사실과 결과 중심으로 짧고 명확하게 정리한다."
+    ),
+    "match": (
+        "예시 보고서의 분량과 밀도를 최대한 비슷하게 맞춘다.\n"
+        "항목별 서술 길이와 표현 방식도 예시에 가깝게 유지한다."
+    ),
+    "detailed": (
+        "예시 보고서보다 더 풍성하고 상세하게 작성한다.\n"
+        "가능하면 진행 맥락, 작업 내용, 결과, 의미를 조금 더 구체적으로 풀어쓴다."
+    ),
+}
 
 
 def _message_to_text(content) -> str:
@@ -47,6 +64,7 @@ def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogle
     resolved_key = api_key or os.getenv("GOOGLE_API_KEY")
     if not resolved_key:
         raise ValueError("GOOGLE_API_KEY가 필요합니다.")
+
     return ChatGoogleGenerativeAI(
         google_api_key=resolved_key,
         model=model or os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
@@ -68,7 +86,7 @@ def _plan_queries(state: ReportState) -> ReportState:
     field_lines = "\n".join(f"- {field}" for field in state.get("template_fields", []))
     response = llm.invoke(
         [
-            SystemMessage(content="너는 주간보고 작성을 위한 정보 수집 플래너다."),
+            SystemMessage(content="당신은 주간보고 작성을 위한 정보 수집 플래너다."),
             HumanMessage(
                 content=(
                     "아래 정보를 바탕으로 주간보고 작성을 위한 검색 질의 5개를 만들어라.\n"
@@ -103,27 +121,27 @@ def _build_example_block(example_documents: list[Document]) -> str:
 
 
 def _retrieve(state: ReportState) -> ReportState:
-    chunks = state["chunks"]
-    retriever = BM25Retriever.from_documents(chunks)
+    retriever = BM25Retriever.from_documents(state["chunks"])
     retriever.k = 8
 
     seen: set[tuple[str, str]] = set()
     retrieved_docs: list[Document] = []
     for query in state["queries"]:
         for doc in retriever.invoke(query):
-            key = (doc.metadata.get("source", ""), doc.page_content)
+            key = (str(doc.metadata.get("source", "")), doc.page_content)
             if key in seen:
                 continue
             seen.add(key)
             retrieved_docs.append(doc)
 
     if not retrieved_docs:
-        retrieved_docs = chunks[:8]
+        retrieved_docs = state["chunks"][:8]
     return {"retrieved_docs": retrieved_docs}
 
 
 def _draft_report(state: ReportState) -> ReportState:
     llm = _get_llm()
+
     evidence: list[str] = []
     for idx, doc in enumerate(state["retrieved_docs"], start=1):
         source = doc.metadata.get("source", "unknown")
@@ -132,20 +150,25 @@ def _draft_report(state: ReportState) -> ReportState:
         evidence.append(f"[근거 {idx}] ({location})\n{doc.page_content}")
 
     fields = state.get("template_fields", [])
+    report_style = state.get("report_style", "match")
     examples = _build_example_block(state.get("example_documents", []))
+    style_instruction = STYLE_INSTRUCTIONS.get(report_style, STYLE_INSTRUCTIONS["match"])
+
     example_section = f"[예시 보고서]\n{examples}\n\n" if examples else ""
     query_section = "[검색 질의]\n" + "\n".join(state["queries"]) + "\n\n"
     evidence_section = "[근거 문서]\n" + "\n\n".join(evidence)
     field_section = "[필수 항목]\n" + "\n".join(f"- {field}" for field in fields) + "\n\n"
+    style_section = f"[작성 옵션]\n{style_instruction}\n\n"
 
     prompt_content = (
         "다음 자료를 근거로 주간보고를 작성하라.\n"
         "요구사항:\n"
         "- 반드시 사용자가 준 항목명을 그대로 사용한다.\n"
-        "- 근거 문서에 없는 내용은 추측하지 말고, 필요한 경우 '확인 필요'라고 적는다.\n"
-        "- 예시 보고서가 있으면 항목 구성과 표현 방식을 참고하되, 실제 내용은 근거 문서를 우선한다.\n\n"
+        "- 근거 문서에 없는 내용은 추측하지 말고, 필요하면 '확인 필요'라고 쓴다.\n"
+        "- 예시 보고서가 있으면 표현 방식과 분량의 기준으로 참고하되, 실제 내용은 근거 문서를 우선한다.\n\n"
         f"[주간보고 양식]\n{state['template']}\n\n"
         f"{field_section}"
+        f"{style_section}"
         f"{example_section}"
         f"{query_section}"
         f"{evidence_section}\n\n"
@@ -159,7 +182,7 @@ def _draft_report(state: ReportState) -> ReportState:
     response = llm.invoke(
         [
             SystemMessage(
-                content="너는 업무 문서 작성에 강한 프로젝트 어시스턴트다. 근거 기반으로 명확한 주간보고를 작성한다."
+                content="당신은 근거 기반으로 주간보고를 작성하는 업무 문서 작성 어시스턴트다."
             ),
             HumanMessage(content=prompt_content),
         ]
@@ -205,6 +228,7 @@ def generate_weekly_report(
     documents: list[Document],
     template: str,
     template_fields: list[str],
+    report_style: str = "match",
     example_documents: list[Document] | None = None,
     api_key: str | None = None,
     model: str | None = None,
@@ -224,6 +248,7 @@ def generate_weekly_report(
             {
                 "template": template,
                 "template_fields": template_fields,
+                "report_style": report_style,
                 "documents": documents,
                 "example_documents": example_documents or [],
                 "chunks": chunks,

@@ -73,8 +73,7 @@ def _clear_github_session_state() -> None:
 
 def _clear_slack_session_state(team_id: str | None = None) -> None:
     if team_id is None:
-        for key in ("slack_selected_team_id",):
-            st.session_state.pop(key, None)
+        st.session_state.pop("slack_selected_team_id", None)
 
     prefixes = (
         "slack_channels::",
@@ -582,6 +581,8 @@ def _ensure_template_fields() -> None:
         st.session_state["template_fields"] = list(DEFAULT_TEMPLATE_FIELDS)
     if "generated_report" not in st.session_state:
         st.session_state["generated_report"] = ""
+    if "report_style" not in st.session_state:
+        st.session_state["report_style"] = "match"
 
 
 def _add_template_field() -> None:
@@ -597,7 +598,7 @@ def _remove_template_field(index: int) -> None:
     st.rerun()
 
 
-def _render_template_builder() -> tuple[str, list, list[str]]:
+def _render_template_builder() -> tuple[str, list, list[str], str, bool]:
     _ensure_template_fields()
 
     st.subheader("주간보고 양식")
@@ -628,7 +629,22 @@ def _render_template_builder() -> tuple[str, list, list[str]]:
         type=["xlsx", "pdf", "docx", "txt", "md"],
         help="업로드한 예시 파일은 주간보고 생성 프롬프트의 few-shot 예시로 사용됩니다.",
     )
-    return template, example_files or [], cleaned_fields
+
+    report_style = st.selectbox(
+        "작성 옵션",
+        options=["concise", "match", "detailed"],
+        index=["concise", "match", "detailed"].index(st.session_state["report_style"]),
+        format_func=lambda value: {
+            "concise": "더 간결하게",
+            "match": "예시와 비슷하게",
+            "detailed": "더 풍성하게",
+        }[value],
+        help="예시 보고서 파일의 분량과 밀도를 기준으로 생성 결과의 간결함/풍성함을 조절합니다.",
+    )
+    st.session_state["report_style"] = report_style
+
+    generate = st.button("주간보고 생성", type="primary", use_container_width=True)
+    return template, example_files or [], cleaned_fields, report_style, generate
 
 
 st.title("주간보고 생성기")
@@ -643,9 +659,7 @@ with middle_col:
     slack_docs = _render_slack_section()
 
 with right_col:
-    template, example_files, template_fields = _render_template_builder()
-
-generate = st.button("주간보고 생성", type="primary", use_container_width=True)
+    template, example_files, template_fields, report_style, generate = _render_template_builder()
 
 if generate:
     documents = [*github_docs, *slack_docs]
@@ -671,6 +685,7 @@ if generate:
                 documents=documents,
                 template=template,
                 template_fields=template_fields,
+                report_style=report_style,
                 example_documents=example_documents,
             )
             st.session_state["generated_report"] = str(result["report"])
