@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import TypedDict
 
 from langchain_community.retrievers import BM25Retriever
@@ -27,18 +28,25 @@ class ReportState(TypedDict, total=False):
 
 STYLE_INSTRUCTIONS = {
     "concise": (
-        "예시 보고서보다 더 간결하게 작성한다.\n"
+        "예시 보고서의 문체와 톤은 그대로 유지하되, 분량만 더 간결하게 줄인다.\n"
         "각 항목은 핵심 사실과 결과 중심으로 짧고 명확하게 정리한다."
     ),
     "match": (
-        "예시 보고서의 분량과 밀도를 최대한 비슷하게 맞춘다.\n"
-        "항목별 서술 길이와 표현 방식도 예시에 가깝게 유지한다."
+        "예시 보고서의 문체, 어휘 선택, 문장 길이, 불릿 스타일, 서술 밀도를 최대한 비슷하게 맞춘다.\n"
+        "예시가 가진 말투와 정리 방식을 그대로 따른다."
     ),
     "detailed": (
-        "예시 보고서보다 더 풍성하고 상세하게 작성한다.\n"
-        "가능하면 진행 맥락, 작업 내용, 결과, 의미를 조금 더 구체적으로 풀어쓴다."
+        "예시 보고서의 문체와 톤은 그대로 유지하되, 내용만 더 풍성하고 상세하게 작성한다.\n"
+        "가능하면 진행 맥락, 작업 내용, 결과, 의미를 조금 더 구체적으로 덧붙인다."
     ),
 }
+
+
+def _strip_evidence_markers(text: str) -> str:
+    cleaned = re.sub(r"\s*\((근거|출처)[^)]+\)", "", text)
+    cleaned = re.sub(r"\s*\[(근거|출처)[^\]]+\]", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*출처\s*:\s*.*$", "", cleaned)
+    return "\n".join(line.rstrip() for line in cleaned.splitlines()).strip()
 
 
 def _message_to_text(content) -> str:
@@ -67,8 +75,8 @@ def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogle
 
     return ChatGoogleGenerativeAI(
         google_api_key=resolved_key,
-        model=model or os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
-        temperature=0.2,
+        model=model or os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"),
+        temperature=0.05,
     )
 
 
@@ -165,7 +173,12 @@ def _draft_report(state: ReportState) -> ReportState:
         "요구사항:\n"
         "- 반드시 사용자가 준 항목명을 그대로 사용한다.\n"
         "- 근거 문서에 없는 내용은 추측하지 말고, 필요하면 '확인 필요'라고 쓴다.\n"
-        "- 예시 보고서가 있으면 표현 방식과 분량의 기준으로 참고하되, 실제 내용은 근거 문서를 우선한다.\n\n"
+        "- 예시 보고서가 있으면 그 예시를 단순 참고가 아니라 문체 기준본으로 사용한다.\n"
+        "- 예시의 어휘, 문장 길이, 불릿 형태, 문장 종결 방식, 서술 밀도를 최대한 그대로 따른다.\n"
+        "- 내용만 이번 주 근거에 맞게 바꾸고, 서술 스타일은 예시에 최대한 가깝게 유지한다.\n"
+        "- 작성 옵션은 예시 문체를 유지한 채 분량만 조절하는 용도로만 사용한다.\n"
+        "- 답변 본문에 출처, 근거 번호, 괄호 메모를 쓰지 않는다.\n"
+        "- '(근거 1)', '[근거 2]', '출처:' 같은 표기를 절대 포함하지 않는다.\n\n"
         f"[주간보고 양식]\n{state['template']}\n\n"
         f"{field_section}"
         f"{style_section}"
@@ -182,7 +195,10 @@ def _draft_report(state: ReportState) -> ReportState:
     response = llm.invoke(
         [
             SystemMessage(
-                content="당신은 근거 기반으로 주간보고를 작성하는 업무 문서 작성 어시스턴트다."
+                content=(
+                    "당신은 근거 기반으로 주간보고를 작성하는 업무 문서 작성 어시스턴트다. "
+                    "예시 보고서가 주어지면 그 문체와 정리 방식을 매우 엄격하게 모방한다."
+                )
             ),
             HumanMessage(content=prompt_content),
         ]
@@ -203,6 +219,7 @@ def _draft_report(state: ReportState) -> ReportState:
     for field in fields:
         value = structured_report.get(field, "확인 필요")
         text = "\n".join(str(item) for item in value) if isinstance(value, list) else str(value)
+        text = _strip_evidence_markers(text)
         normalized[field] = text
         rendered_sections.append(f"{field}\n{text}")
 
