@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import html
 import tempfile
@@ -650,15 +650,17 @@ def _render_template_builder() -> tuple[str, list, list[str], str, bool]:
 st.title("주간보고 생성기")
 st.caption("GitHub 커밋과 Slack 파일 기록을 근거로, 지정한 항목 구조에 맞는 주간보고를 생성합니다.")
 
-left_col, middle_col, right_col = st.columns([1.0, 1.0, 1.0], gap="large")
+top_left_col, top_right_col = st.columns(2, gap="large")
 
-with left_col:
+with top_left_col:
     github_docs = _render_github_section()
 
-with middle_col:
+with top_right_col:
     slack_docs = _render_slack_section()
 
-with right_col:
+bottom_left_col, bottom_right_col = st.columns(2, gap="large")
+
+with bottom_left_col:
     template, example_files, template_fields, report_style, generate = _render_template_builder()
 
 if generate:
@@ -670,26 +672,29 @@ if generate:
         st.error("주간보고 항목을 최소 한 개 이상 입력해야 합니다.")
         st.stop()
 
-    with st.spinner("주간보고 생성을 진행 중입니다."):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            example_documents = []
-            example_paths: list[Path] = []
-            for uploaded in example_files:
-                path = Path(tmp_dir) / f"example_{uploaded.name}"
-                path.write_bytes(uploaded.getbuffer())
-                example_paths.append(path)
+    with bottom_right_col:
+        with st.spinner("주간보고 생성을 진행 중입니다."):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                example_documents = []
+                example_paths: list[Path] = []
+                for uploaded in example_files:
+                    path = Path(tmp_dir) / f"example_{uploaded.name}"
+                    path.write_bytes(uploaded.getbuffer())
+                    example_paths.append(path)
 
-            example_documents.extend(load_documents(example_paths))
+                example_documents.extend(load_documents(example_paths))
 
-            result = generate_weekly_report(
-                documents=documents,
-                template=template,
-                template_fields=template_fields,
-                report_style=report_style,
-                example_documents=example_documents,
-            )
-            st.session_state["generated_report"] = str(result["report"])
+                result = generate_weekly_report(
+                    documents=documents,
+                    template=template,
+                    template_fields=template_fields,
+                    report_style=report_style,
+                    example_documents=example_documents,
+                )
+                st.session_state["generated_report"] = str(result["report"])
 
-if st.session_state.get("generated_report"):
-    st.subheader("생성된 주간보고")
-    st.text_area("결과", value=st.session_state["generated_report"], height=420)
+
+with bottom_right_col:
+    if st.session_state.get("generated_report"):
+        st.subheader("생성된 주간보고")
+        st.text_area("결과", value=st.session_state["generated_report"], height=420)

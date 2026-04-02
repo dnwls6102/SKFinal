@@ -75,7 +75,7 @@ def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogle
 
     return ChatGoogleGenerativeAI(
         google_api_key=resolved_key,
-        model=model or os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"),
+        model=model or os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
         temperature=0.05,
     )
 
