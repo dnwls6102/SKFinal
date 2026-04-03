@@ -307,9 +307,7 @@ def get_current_week_range(now: datetime | None = None) -> tuple[datetime, datet
         time.min,
         tzinfo=KST,
     )
-    start_of_previous_week = start_of_this_week - timedelta(days=7)
-    end_of_previous_week = start_of_this_week - timedelta(seconds=1)
-    return start_of_previous_week, end_of_previous_week
+    return start_of_this_week, current
 
 
 def _to_slack_timestamp(value: datetime) -> str:
