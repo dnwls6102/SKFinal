@@ -9,6 +9,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
+from example_documents import EXAMPLE_UPLOAD_TYPES, load_example_documents
 from github_integration import (
     GitHubOAuthError,
     build_login_url as build_github_login_url,
@@ -383,6 +384,7 @@ def _render_github_section():
             _clear_github_session_state()
             clear_github_saved_session()
             clear_commit_cache()
+            st.query_params.clear()
             st.rerun()
 
     try:
@@ -626,7 +628,7 @@ def _render_template_builder() -> tuple[str, list, list[str], str, bool]:
     example_files = st.file_uploader(
         "예시 보고서 파일 업로드",
         accept_multiple_files=True,
-        type=["xlsx", "pdf", "docx", "txt", "md"],
+        type=EXAMPLE_UPLOAD_TYPES,
         help="업로드한 예시 파일은 주간보고 생성 프롬프트의 few-shot 예시로 사용됩니다.",
     )
 
@@ -682,7 +684,7 @@ if generate:
                     path.write_bytes(uploaded.getbuffer())
                     example_paths.append(path)
 
-                example_documents.extend(load_documents(example_paths))
+                example_documents.extend(load_example_documents(example_paths))
 
                 result = generate_weekly_report(
                     documents=documents,
