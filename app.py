@@ -8,6 +8,7 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
+from langchain_core.documents import Document
 
 from cookie_store import get_cookies
 from example_documents import EXAMPLE_UPLOAD_TYPES, load_example_documents
@@ -558,6 +559,79 @@ def _render_slack_section():
     return slack_documents(filtered_items)
 
 
+def _ensure_manual_entries() -> None:
+    if "manual_entries" not in st.session_state:
+        st.session_state["manual_entries"] = [""]
+
+
+def _add_manual_entry() -> None:
+    st.session_state["manual_entries"] = [*st.session_state["manual_entries"], ""]
+
+
+def _remove_manual_entry(index: int) -> None:
+    entries = list(st.session_state["manual_entries"])
+    if len(entries) <= 1:
+        st.session_state["manual_entries"] = [""]
+    else:
+        entries.pop(index)
+        st.session_state["manual_entries"] = entries
+    st.rerun()
+
+
+def _manual_documents(entries: list[str]) -> list[Document]:
+    docs: list[Document] = []
+    for idx, entry in enumerate(entries, start=1):
+        text = entry.strip()
+        if not text:
+            continue
+        docs.append(
+            Document(
+                page_content=f"Manual entry:\n{text}",
+                metadata={
+                    "source": f"수동 입력 #{idx}",
+                    "type": "manual_entry",
+                },
+            )
+        )
+    return docs
+
+
+def _render_manual_section() -> list[Document]:
+    st.subheader("추가 업무 내역")
+    st.caption("GitHub/Slack에 기록되지 않은 업무가 있으면 직접 입력해 주간보고 근거에 포함합니다.")
+
+    _ensure_manual_entries()
+    entries = st.session_state["manual_entries"]
+
+    list_container = st.container(height=480) if len(entries) > 3 else st.container()
+    with list_container:
+        for idx, entry in enumerate(entries):
+            with st.container(border=True):
+                left, right = st.columns([8, 1])
+                with left:
+                    value = st.text_area(
+                        f"업무 {idx + 1}",
+                        value=entry,
+                        key=f"manual_entry_{idx}",
+                        placeholder="예: 4/15 Q2 OKR 워크숍 참석, 로드맵 초안 작성",
+                        label_visibility="collapsed",
+                        height=100,
+                    )
+                    st.session_state["manual_entries"][idx] = value
+                with right:
+                    if st.button("-", key=f"remove_manual_{idx}", use_container_width=True):
+                        _remove_manual_entry(idx)
+
+    st.button(
+        "+ 업무 추가",
+        on_click=_add_manual_entry,
+        use_container_width=True,
+        key="manual_add_button",
+    )
+
+    return _manual_documents(st.session_state["manual_entries"])
+
+
 def _ensure_template_fields() -> None:
     if "template_fields" not in st.session_state:
         st.session_state["template_fields"] = list(DEFAULT_TEMPLATE_FIELDS)
@@ -630,15 +704,20 @@ def _render_template_builder() -> tuple[str, list, list[str], str, bool]:
 
 
 st.title("주간보고 생성기")
-st.caption("GitHub 커밋과 Slack 파일 기록을 근거로, 지정한 항목 구조에 맞는 주간보고를 생성합니다.")
+st.caption("GitHub 커밋, Slack 파일 기록, 직접 입력한 업무 내역을 근거로 지정한 항목 구조에 맞는 주간보고를 생성합니다.")
 
-top_left_col, top_right_col = st.columns(2, gap="large")
+top_left_col, top_middle_col, top_right_col = st.columns(3, gap="large")
 
 with top_left_col:
     github_docs = _render_github_section()
 
-with top_right_col:
+with top_middle_col:
     slack_docs = _render_slack_section()
+
+with top_right_col:
+    manual_docs = _render_manual_section()
+
+st.divider()
 
 bottom_left_col, bottom_right_col = st.columns(2, gap="large")
 
@@ -646,9 +725,9 @@ with bottom_left_col:
     template, example_files, template_fields, report_style, generate = _render_template_builder()
 
 if generate:
-    documents = [*github_docs, *slack_docs]
+    documents = [*github_docs, *slack_docs, *manual_docs]
     if not documents:
-        st.error("GitHub 커밋 또는 Slack 기록 데이터가 필요합니다.")
+        st.error("GitHub 커밋, Slack 기록, 또는 추가 업무 내역 중 하나 이상이 필요합니다.")
         st.stop()
     if not template.strip():
         st.error("주간보고 항목을 최소 한 개 이상 입력해야 합니다.")
