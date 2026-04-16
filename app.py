@@ -6,7 +6,6 @@ from pathlib import Path
 
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 
@@ -328,7 +327,7 @@ def _render_commit_list(commits) -> None:
       {''.join(items)}
     </div>
     """
-    components.html(html_block, height=440, scrolling=False)
+    st.html(html_block)
 
 
 def _render_slack_item_list(items) -> None:
@@ -353,7 +352,7 @@ def _render_slack_item_list(items) -> None:
       {''.join(blocks)}
     </div>
     """
-    components.html(html_block, height=440, scrolling=False)
+    st.html(html_block)
 
 
 def _render_github_section():
