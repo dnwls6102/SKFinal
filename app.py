@@ -603,7 +603,7 @@ def _render_manual_section() -> list[Document]:
     _ensure_manual_entries()
     entries = st.session_state["manual_entries"]
 
-    list_container = st.container(height=480) if len(entries) > 3 else st.container()
+    list_container = st.container(height=580) if len(entries) > 3 else st.container()
     with list_container:
         for idx, entry in enumerate(entries):
             with st.container(border=True):
