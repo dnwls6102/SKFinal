@@ -4,23 +4,22 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-import streamlit as st
 from langchain_core.documents import Document
+
+import cookie_store
+from config import get_secret
 
 
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com/login/oauth"
 KST = ZoneInfo("Asia/Seoul")
-TOKEN_STORE_PATH = Path(".github_oauth_session.json")
-COMMIT_CACHE_PATH = Path(".github_commit_cache.json")
+SESSION_COOKIE_KEY = "github_session"
 
 
 class GitHubOAuthError(RuntimeError):
@@ -37,7 +36,7 @@ class CommitInfo:
 
 
 def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
+    value = get_secret(name)
     if not value:
         raise GitHubOAuthError(f"{name} 환경변수가 필요합니다.")
     return value
@@ -145,72 +144,24 @@ def fetch_authenticated_user(token: str) -> dict[str, object]:
 
 
 def load_saved_session() -> tuple[str, dict[str, object]] | None:
-    if not TOKEN_STORE_PATH.exists():
+    payload = cookie_store.load_json(SESSION_COOKIE_KEY)
+    if not isinstance(payload, dict):
         return None
     try:
-        payload = json.loads(TOKEN_STORE_PATH.read_text(encoding="utf-8"))
         token = str(payload["token"])
-        user = payload["user"]
-    except Exception:
+        user = dict(payload["user"])
+    except (KeyError, TypeError, ValueError):
         clear_saved_session()
         return None
     return token, user
 
 
 def save_session(token: str, user: dict[str, object]) -> None:
-    payload = {"token": token, "user": user}
-    TOKEN_STORE_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    cookie_store.save_json(SESSION_COOKIE_KEY, {"token": token, "user": user})
 
 
 def clear_saved_session() -> None:
-    if TOKEN_STORE_PATH.exists():
-        TOKEN_STORE_PATH.unlink()
-
-
-def load_commit_cache(username: str, week_key: str) -> list[CommitInfo] | None:
-    if not COMMIT_CACHE_PATH.exists():
-        return None
-
-    try:
-        payload = json.loads(COMMIT_CACHE_PATH.read_text(encoding="utf-8"))
-        cached_items = payload.get(username, {}).get(week_key)
-        if not isinstance(cached_items, list):
-            return None
-        return [CommitInfo(**item) for item in cached_items]
-    except Exception:
-        clear_commit_cache()
-        return None
-
-
-def save_commit_cache(username: str, week_key: str, commits: list[CommitInfo]) -> None:
-    try:
-        payload = json.loads(COMMIT_CACHE_PATH.read_text(encoding="utf-8")) if COMMIT_CACHE_PATH.exists() else {}
-    except Exception:
-        payload = {}
-
-    payload.setdefault(username, {})
-    payload[username][week_key] = [
-        {
-            "repo_full_name": commit.repo_full_name,
-            "sha": commit.sha,
-            "message": commit.message,
-            "author_date": commit.author_date,
-            "url": commit.url,
-        }
-        for commit in commits
-    ]
-    COMMIT_CACHE_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def clear_commit_cache() -> None:
-    if COMMIT_CACHE_PATH.exists():
-        COMMIT_CACHE_PATH.unlink()
+    cookie_store.delete_key(SESSION_COOKIE_KEY)
 
 
 def _paginate(url: str, token: str, params: dict[str, object] | None = None) -> list[dict[str, object]]:

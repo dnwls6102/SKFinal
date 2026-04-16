@@ -9,11 +9,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
+from cookie_store import get_cookies
 from example_documents import EXAMPLE_UPLOAD_TYPES, load_example_documents
 from github_integration import (
     GitHubOAuthError,
     build_login_url as build_github_login_url,
-    clear_commit_cache,
     clear_saved_session as clear_github_saved_session,
     commit_documents,
     exchange_code_for_token as exchange_github_code_for_token,
@@ -22,9 +22,7 @@ from github_integration import (
     fetch_user_repositories,
     fetch_weekly_commits,
     get_current_week_range as get_github_week_range,
-    load_commit_cache,
     load_saved_session as load_github_saved_session,
-    save_commit_cache,
     save_session as save_github_session,
 )
 from loaders import load_documents
@@ -33,15 +31,12 @@ from slack_integration import (
     SlackOAuthError,
     auth_test as slack_auth_test,
     build_login_url as build_slack_login_url,
-    clear_file_cache as clear_slack_file_cache,
     clear_saved_sessions as clear_slack_saved_sessions,
     exchange_code_for_token as exchange_slack_code_for_token,
     fetch_channels,
     fetch_weekly_shared_files,
     get_current_week_range as get_slack_week_range,
-    load_file_cache as load_slack_file_cache,
     load_saved_sessions as load_slack_saved_sessions,
-    save_file_cache as save_slack_file_cache,
     save_session as save_slack_session,
     slack_documents,
 )
@@ -50,6 +45,8 @@ from slack_integration import (
 load_dotenv()
 
 st.set_page_config(page_title="Weekly Report RAG", layout="wide")
+
+get_cookies()
 
 DEFAULT_TEMPLATE_FIELDS = [
     "업무 내용 및 활동",
@@ -383,7 +380,6 @@ def _render_github_section():
         if st.button("연결 해제", key="github_disconnect", use_container_width=True):
             _clear_github_session_state()
             clear_github_saved_session()
-            clear_commit_cache()
             st.query_params.clear()
             st.rerun()
 
@@ -393,7 +389,6 @@ def _render_github_section():
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code in {401, 403}:
             clear_github_saved_session()
-            clear_commit_cache()
             _clear_github_session_state()
             st.error("저장된 GitHub 로그인 정보가 만료되었습니다. 다시 로그인해야 합니다.")
             return []
@@ -415,11 +410,6 @@ def _render_github_section():
         st.session_state.pop("all_weekly_commits", None)
         st.session_state["weekly_commit_cache_key"] = week_key
 
-    if not refresh and "all_weekly_commits" not in st.session_state:
-        cached_commits = load_commit_cache(str(user["login"]), week_key)
-        if cached_commits is not None:
-            st.session_state["all_weekly_commits"] = cached_commits
-
     if refresh or "all_weekly_commits" not in st.session_state:
         with st.spinner("GitHub에서 커밋 메시지를 가져오는 중입니다."):
             try:
@@ -427,7 +417,6 @@ def _render_github_section():
             except requests.HTTPError as exc:
                 if exc.response is not None and exc.response.status_code in {401, 403}:
                     clear_github_saved_session()
-                    clear_commit_cache()
                     _clear_github_session_state()
                     st.error("저장된 GitHub 로그인 정보가 만료되었습니다. 다시 로그인해야 합니다.")
                     return []
@@ -438,7 +427,6 @@ def _render_github_section():
                 return []
 
             st.session_state["all_weekly_commits"] = all_commits
-            save_commit_cache(str(user["login"]), week_key, all_commits)
 
     all_commits = st.session_state.get("all_weekly_commits", [])
     commits = [commit for commit in all_commits if commit.repo_full_name in selected_repos]
@@ -499,7 +487,6 @@ def _render_slack_section():
     with right:
         if st.button("연결 해제", key=f"slack_disconnect::{selected_team_id}", use_container_width=True):
             clear_slack_saved_sessions(selected_team_id)
-            clear_slack_file_cache(selected_team_id)
             _clear_slack_session_state(selected_team_id)
             st.rerun()
 
@@ -519,7 +506,6 @@ def _render_slack_section():
         channels = _load_slack_channels(selected_team_id, selected_session.access_token)
     except SlackOAuthError as exc:
         clear_slack_saved_sessions(selected_team_id)
-        clear_slack_file_cache(selected_team_id)
         _clear_slack_session_state(selected_team_id)
         st.error(f"Slack 연결이 만료되었거나 권한이 부족합니다: {exc}")
         return []
@@ -547,11 +533,6 @@ def _render_slack_section():
         st.session_state.pop(items_state_key, None)
         st.session_state[cache_state_key] = effective_cache_key
 
-    if items_state_key not in st.session_state:
-        cached_items = load_slack_file_cache(selected_team_id, effective_cache_key)
-        if cached_items is not None:
-            st.session_state[items_state_key] = cached_items
-
     if refresh or items_state_key not in st.session_state:
         with st.spinner("Slack에서 파일과 메시지를 가져오는 중입니다."):
             try:
@@ -564,7 +545,6 @@ def _render_slack_section():
                 return []
 
             st.session_state[items_state_key] = all_items
-            save_slack_file_cache(selected_team_id, effective_cache_key, all_items)
 
     all_items = st.session_state.get(items_state_key, [])
     filtered_items = [item for item in all_items if item.channel_id in selected_channel_ids]

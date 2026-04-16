@@ -4,22 +4,22 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 from langchain_core.documents import Document
 
+import cookie_store
+from config import get_secret
+
 
 SLACK_API_BASE = "https://slack.com/api"
 SLACK_OAUTH_BASE = "https://slack.com/oauth/v2"
 KST = ZoneInfo("Asia/Seoul")
-SESSION_STORE_PATH = Path(".slack_oauth_sessions.json")
-FILE_CACHE_PATH = Path(".slack_file_cache.json")
+SESSIONS_COOKIE_KEY = "slack_sessions"
 
 
 class SlackOAuthError(RuntimeError):
@@ -51,7 +51,7 @@ class SlackSharedFileInfo:
 
 
 def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
+    value = get_secret(name)
     if not value:
         raise SlackOAuthError(f"{name} 환경변수가 필요합니다.")
     return value
@@ -178,44 +178,29 @@ def auth_test(token: str) -> dict[str, object]:
 
 
 def load_saved_sessions() -> dict[str, SlackWorkspaceSession]:
-    if not SESSION_STORE_PATH.exists():
+    payload = cookie_store.load_json(SESSIONS_COOKIE_KEY)
+    if not isinstance(payload, dict):
         return {}
     try:
-        payload = json.loads(SESSION_STORE_PATH.read_text(encoding="utf-8"))
-    except Exception:
+        return {
+            team_id: SlackWorkspaceSession(**item)
+            for team_id, item in payload.items()
+        }
+    except (TypeError, ValueError):
         clear_saved_sessions()
         return {}
-
-    sessions: dict[str, SlackWorkspaceSession] = {}
-    try:
-        for team_id, item in payload.items():
-            sessions[team_id] = SlackWorkspaceSession(**item)
-    except Exception:
-        clear_saved_sessions()
-        return {}
-    return sessions
 
 
 def save_session(session: SlackWorkspaceSession) -> None:
     sessions = load_saved_sessions()
     sessions[session.team_id] = session
-    payload = {
-        team_id: {
-            "team_id": saved.team_id,
-            "team_name": saved.team_name,
-            "user_id": saved.user_id,
-            "user_name": saved.user_name,
-            "access_token": saved.access_token,
-        }
-        for team_id, saved in sessions.items()
-    }
-    SESSION_STORE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = {team_id: asdict(saved) for team_id, saved in sessions.items()}
+    cookie_store.save_json(SESSIONS_COOKIE_KEY, payload)
 
 
 def clear_saved_sessions(team_id: str | None = None) -> None:
     if team_id is None:
-        if SESSION_STORE_PATH.exists():
-            SESSION_STORE_PATH.unlink()
+        cookie_store.delete_key(SESSIONS_COOKIE_KEY)
         return
 
     sessions = load_saved_sessions()
@@ -223,81 +208,10 @@ def clear_saved_sessions(team_id: str | None = None) -> None:
         return
     sessions.pop(team_id, None)
     if not sessions:
-        clear_saved_sessions()
+        cookie_store.delete_key(SESSIONS_COOKIE_KEY)
         return
-    payload = {
-        saved_team_id: {
-            "team_id": saved.team_id,
-            "team_name": saved.team_name,
-            "user_id": saved.user_id,
-            "user_name": saved.user_name,
-            "access_token": saved.access_token,
-        }
-        for saved_team_id, saved in sessions.items()
-    }
-    SESSION_STORE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def load_file_cache(team_id: str, week_key: str) -> list[SlackSharedFileInfo] | None:
-    if not FILE_CACHE_PATH.exists():
-        return None
-
-    try:
-        payload = json.loads(FILE_CACHE_PATH.read_text(encoding="utf-8"))
-        cached_items = payload.get(team_id, {}).get(week_key)
-        if not isinstance(cached_items, list):
-            return None
-        return [SlackSharedFileInfo(**item) for item in cached_items]
-    except Exception:
-        clear_file_cache()
-        return None
-
-
-def save_file_cache(team_id: str, week_key: str, items: list[SlackSharedFileInfo]) -> None:
-    try:
-        payload = json.loads(FILE_CACHE_PATH.read_text(encoding="utf-8")) if FILE_CACHE_PATH.exists() else {}
-    except Exception:
-        payload = {}
-
-    payload.setdefault(team_id, {})
-    payload[team_id][week_key] = [
-        {
-            "team_id": item.team_id,
-            "team_name": item.team_name,
-            "channel_id": item.channel_id,
-            "channel_name": item.channel_name,
-            "file_id": item.file_id,
-            "title": item.title,
-            "filetype": item.filetype,
-            "created_at": item.created_at,
-            "permalink": item.permalink,
-            "message_ts": item.message_ts,
-            "message_text": item.message_text,
-        }
-        for item in items
-    ]
-    FILE_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def clear_file_cache(team_id: str | None = None) -> None:
-    if team_id is None:
-        if FILE_CACHE_PATH.exists():
-            FILE_CACHE_PATH.unlink()
-        return
-
-    if not FILE_CACHE_PATH.exists():
-        return
-    try:
-        payload = json.loads(FILE_CACHE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        clear_file_cache()
-        return
-
-    payload.pop(team_id, None)
-    if not payload:
-        clear_file_cache()
-        return
-    FILE_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = {tid: asdict(saved) for tid, saved in sessions.items()}
+    cookie_store.save_json(SESSIONS_COOKIE_KEY, payload)
 
 
 def get_current_week_range(now: datetime | None = None) -> tuple[datetime, datetime]:
