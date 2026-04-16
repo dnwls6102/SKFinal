@@ -21,20 +21,27 @@ def _get_password() -> str:
 
 
 def get_cookies() -> EncryptedCookieManager:
-    manager = st.session_state.get(_STATE_KEY)
-    if manager is None:
-        manager = EncryptedCookieManager(
-            prefix=_COOKIE_PREFIX,
-            password=_get_password(),
-        )
-        st.session_state[_STATE_KEY] = manager
+    manager = EncryptedCookieManager(
+        prefix=_COOKIE_PREFIX,
+        password=_get_password(),
+    )
+    st.session_state[_STATE_KEY] = manager
     if not manager.ready():
         st.stop()
     return manager
 
 
+def _current() -> EncryptedCookieManager:
+    manager = st.session_state.get(_STATE_KEY)
+    if manager is None:
+        raise RuntimeError(
+            "cookie_store.get_cookies()가 Streamlit 스크립트 최상단에서 먼저 호출되어야 합니다."
+        )
+    return manager
+
+
 def load_json(key: str) -> Any:
-    cookies = get_cookies()
+    cookies = _current()
     raw = cookies.get(key)
     if not raw:
         return None
@@ -46,13 +53,13 @@ def load_json(key: str) -> Any:
 
 
 def save_json(key: str, value: Any) -> None:
-    cookies = get_cookies()
+    cookies = _current()
     cookies[key] = json.dumps(value, ensure_ascii=False)
     cookies.save()
 
 
 def delete_key(key: str) -> None:
-    cookies = get_cookies()
+    cookies = _current()
     if key in cookies:
         del cookies[key]
         cookies.save()
