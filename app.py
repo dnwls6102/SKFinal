@@ -55,6 +55,13 @@ DEFAULT_TEMPLATE_FIELDS = [
 ]
 
 
+def _format_report_generation_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if not message:
+        return "보고서 생성 중 알 수 없는 오류가 발생했습니다."
+    return f"보고서 생성 중 오류가 발생했습니다: {message}"
+
+
 def _clear_github_session_state() -> None:
     for key in (
         "github_token",
@@ -636,6 +643,8 @@ def _ensure_template_fields() -> None:
         st.session_state["template_fields"] = list(DEFAULT_TEMPLATE_FIELDS)
     if "generated_report" not in st.session_state:
         st.session_state["generated_report"] = ""
+    if "generated_report_error" not in st.session_state:
+        st.session_state["generated_report_error"] = ""
     if "report_style" not in st.session_state:
         st.session_state["report_style"] = "match"
 
@@ -734,27 +743,36 @@ if generate:
 
     with bottom_right_col:
         with st.spinner("주간보고 생성을 진행 중입니다."):
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                example_documents = []
-                example_paths: list[Path] = []
-                for uploaded in example_files:
-                    path = Path(tmp_dir) / f"example_{uploaded.name}"
-                    path.write_bytes(uploaded.getbuffer())
-                    example_paths.append(path)
+            try:
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    example_documents = []
+                    example_paths: list[Path] = []
+                    for uploaded in example_files:
+                        path = Path(tmp_dir) / f"example_{uploaded.name}"
+                        path.write_bytes(uploaded.getbuffer())
+                        example_paths.append(path)
 
-                example_documents.extend(load_example_documents(example_paths))
+                    example_documents.extend(load_example_documents(example_paths))
 
-                result = generate_weekly_report(
-                    documents=documents,
-                    template=template,
-                    template_fields=template_fields,
-                    report_style=report_style,
-                    example_documents=example_documents,
-                )
+                    result = generate_weekly_report(
+                        documents=documents,
+                        template=template,
+                        template_fields=template_fields,
+                        report_style=report_style,
+                        example_documents=example_documents,
+                    )
+            except Exception as exc:
+                error_message = _format_report_generation_error(exc)
+                st.session_state["generated_report_error"] = error_message
+                st.toast(error_message, icon=":material/error:")
+            else:
                 st.session_state["generated_report"] = str(result["report"])
+                st.session_state["generated_report_error"] = ""
 
 
 with bottom_right_col:
+    if st.session_state.get("generated_report_error"):
+        st.error(st.session_state["generated_report_error"])
     if st.session_state.get("generated_report"):
         st.subheader("생성된 주간보고")
         st.text_area("결과", value=st.session_state["generated_report"], height=420)
