@@ -46,6 +46,30 @@ load_dotenv()
 
 st.set_page_config(page_title="Weekly Report RAG", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    .stApp:has([data-testid="stSpinner"]) {
+        pointer-events: none !important;
+        cursor: wait !important;
+    }
+    .stApp:has([data-testid="stSpinner"])::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(255, 255, 255, 0.25);
+        z-index: 998;
+        pointer-events: none;
+    }
+    .stApp:has([data-testid="stSpinner"]) [data-testid="stSpinner"] {
+        position: relative;
+        z-index: 1000;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 get_cookies()
 
 DEFAULT_TEMPLATE_FIELDS = [
