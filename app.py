@@ -312,29 +312,81 @@ def _render_slack_channel_selection(team_id: str, channels: list[dict[str, objec
     return selected_channels
 
 
-def _render_commit_list(commits) -> None:
-    items: list[str] = []
-    for idx, commit in enumerate(commits, start=1):
-        message_html = html.escape(commit.message).replace("\n", "<br>")
-        items.append(
-            f"""
-            <div style="padding:12px 14px;border-bottom:1px solid #e5e7eb;">
-              <div style="font-weight:600;margin-bottom:4px;">{idx}. {html.escape(commit.repo_full_name)}</div>
-              <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">{html.escape(commit.author_date[:10])}</div>
-              <div style="white-space:normal;line-height:1.5;">{message_html}</div>
-              <div style="margin-top:8px;font-size:12px;">
-                <a href="{html.escape(commit.url)}" target="_blank" style="color:#2563eb;text-decoration:none;">커밋 보기</a>
-              </div>
-            </div>
-            """
-        )
+def _ensure_github_commit_selection(commits) -> None:
+    current_shas = {commit.sha for commit in commits}
+    seen = st.session_state.get("github_seen_commit_shas", set())
 
-    html_block = f"""
-    <div style="max-height:420px; overflow-y:auto; border:1px solid #d1d5db; border-radius:10px; background:#ffffff;">
-      {''.join(items)}
-    </div>
-    """
-    st.html(html_block)
+    if "github_selected_commit_shas" not in st.session_state:
+        st.session_state["github_selected_commit_shas"] = set(current_shas)
+        st.session_state["github_seen_commit_shas"] = set(current_shas)
+        return
+
+    selected = st.session_state["github_selected_commit_shas"]
+    selected &= current_shas
+    newly_seen = current_shas - seen
+    selected |= newly_seen
+
+    for sha in current_shas:
+        widget_val = st.session_state.get(f"github_commit_checkbox::{sha}")
+        if widget_val is True:
+            selected.add(sha)
+        elif widget_val is False:
+            selected.discard(sha)
+
+    st.session_state["github_selected_commit_shas"] = selected
+    st.session_state["github_seen_commit_shas"] = seen | current_shas
+
+
+def _select_all_github_commits(all_shas: set[str]) -> None:
+    st.session_state["github_selected_commit_shas"] = set(all_shas)
+    for sha in all_shas:
+        st.session_state[f"github_commit_checkbox::{sha}"] = True
+
+
+def _deselect_all_github_commits(all_shas: set[str]) -> None:
+    st.session_state["github_selected_commit_shas"] = set()
+    for sha in all_shas:
+        st.session_state[f"github_commit_checkbox::{sha}"] = False
+
+
+def _render_commit_list(commits) -> list:
+    selected_shas: set[str] = st.session_state.setdefault(
+        "github_selected_commit_shas", set()
+    )
+    selected_commits = []
+
+    with st.container(height=420, border=True):
+        for idx, commit in enumerate(commits, start=1):
+            with st.container(border=True):
+                left, right = st.columns([12, 1], vertical_alignment="top")
+                with left:
+                    message_html = html.escape(commit.message).replace("\n", "<br>")
+                    card_html = f"""
+                    <div style="padding:2px 2px;">
+                      <div style="font-weight:600;margin-bottom:4px;">{idx}. {html.escape(commit.repo_full_name)}</div>
+                      <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">{html.escape(commit.author_date[:10])}</div>
+                      <div style="white-space:normal;line-height:1.5;">{message_html}</div>
+                      <div style="margin-top:8px;font-size:12px;">
+                        <a href="{html.escape(commit.url)}" target="_blank" style="color:#2563eb;text-decoration:none;">커밋 보기</a>
+                      </div>
+                    </div>
+                    """
+                    st.html(card_html)
+                with right:
+                    checked = commit.sha in selected_shas
+                    if st.checkbox(
+                        "포함",
+                        value=checked,
+                        key=f"github_commit_checkbox::{commit.sha}",
+                        label_visibility="collapsed",
+                    ):
+                        selected_shas.add(commit.sha)
+                        selected_commits.append(commit)
+                    else:
+                        selected_shas.discard(commit.sha)
+
+    st.session_state["github_selected_commit_shas"] = selected_shas
+    return selected_commits
 
 
 def _render_slack_item_list(items) -> None:
@@ -415,6 +467,8 @@ def _render_github_section():
     cache_key_changed = st.session_state.get("weekly_commit_cache_key") != week_key
     if cache_key_changed:
         st.session_state.pop("all_weekly_commits", None)
+        st.session_state.pop("github_selected_commit_shas", None)
+        st.session_state.pop("github_seen_commit_shas", None)
         st.session_state["weekly_commit_cache_key"] = week_key
 
     if refresh or "all_weekly_commits" not in st.session_state:
@@ -439,13 +493,37 @@ def _render_github_section():
     commits = [commit for commit in all_commits if commit.repo_full_name in selected_repos]
     st.session_state["weekly_commits"] = commits
 
-    st.write(f"조회된 커밋 수: {len(commits)}")
     if not commits:
+        st.write("조회된 커밋 수: 0")
         st.info("선택된 그룹 기준 커밋이 없습니다.")
         return []
 
-    _render_commit_list(commits)
-    return commit_documents(commits)
+    _ensure_github_commit_selection(commits)
+    current_shas = {commit.sha for commit in commits}
+    selected_shas = st.session_state["github_selected_commit_shas"] & current_shas
+
+    select_col, deselect_col = st.columns(2)
+    with select_col:
+        st.button(
+            "커밋 전체 선택",
+            key="github_commits_select_all",
+            use_container_width=True,
+            on_click=_select_all_github_commits,
+            args=(current_shas,),
+        )
+    with deselect_col:
+        st.button(
+            "커밋 전체 해제",
+            key="github_commits_deselect_all",
+            use_container_width=True,
+            on_click=_deselect_all_github_commits,
+            args=(current_shas,),
+        )
+
+    st.caption(f"선택된 커밋: {len(selected_shas)} / 전체 {len(commits)}")
+
+    selected_commits = _render_commit_list(commits)
+    return commit_documents(selected_commits)
 
 
 def _render_slack_section():
