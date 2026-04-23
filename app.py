@@ -674,37 +674,10 @@ def _render_manual_section() -> list[Document]:
         key="manual_add_button",
     )
 
-    st.markdown(
-        """
-        <div class="no-work-button-anchor"></div>
-        <style>
-        div.no-work-button-anchor { display: none; }
-        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
-        div[data-testid="stButton"] > button {
-            background-color: #dc3545;
-            color: #ffffff;
-            border: 1px solid #dc3545;
-        }
-        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
-        div[data-testid="stButton"] > button:hover {
-            background-color: #c82333;
-            color: #ffffff;
-            border-color: #bd2130;
-        }
-        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
-        div[data-testid="stButton"] > button:focus {
-            background-color: #c82333;
-            color: #ffffff;
-            border-color: #bd2130;
-            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.35);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
     st.button(
         "이번 주에 한 일이 없다면?",
         on_click=_request_plausible_manual_tasks,
+        type="primary",
         use_container_width=True,
         key="manual_no_work_button",
     )
