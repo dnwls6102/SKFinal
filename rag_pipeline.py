@@ -80,6 +80,55 @@ def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogle
     )
 
 
+def generate_plausible_manual_tasks(
+    count: int = 3,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> list[str]:
+    llm = _get_llm(api_key=api_key, model=model)
+    response = llm.invoke(
+        [
+            SystemMessage(
+                content=(
+                    "당신은 한국 직장인의 한 주간 업무 내역을 자연스럽게 만들어내는 작가다. "
+                    "결과물은 실제 업무를 했다고 해도 무리 없을 만큼 일반적이고 그럴듯해야 한다."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"조건에 맞는 '이번 주 업무 내역' {count}개를 생성하라.\n"
+                    "- 한국어로 작성한다.\n"
+                    "- 각 항목은 1~2문장, 대략 50~120자 분량으로 자연스럽게 쓴다.\n"
+                    "- 특정 기업명, 프로젝트명, 제품명, 인명은 쓰지 않는다.\n"
+                    "- 회의 참석, 문서화, 코드 리뷰, 이슈 대응, 기능 개선, 협업 커뮤니케이션 등이 "
+                    "고르게 섞여 한 주 업무처럼 보이도록 다양화한다.\n"
+                    "- 지나치게 모호하지 않되, 누구에게나 해당될 수 있는 수준의 일반 표현을 쓴다.\n\n"
+                    "출력 형식:\n"
+                    f"- JSON 배열 하나만 출력한다. 길이는 정확히 {count}.\n"
+                    "- 각 원소는 업무 내역 문자열 하나.\n"
+                    "- 설명, 마크다운, 코드블록, 번호 매김을 덧붙이지 않는다."
+                )
+            ),
+        ]
+    )
+    content = _message_to_text(response.content).strip()
+
+    try:
+        tasks = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("[")
+        end = content.rfind("]")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("모델이 JSON 배열 형식으로 응답하지 않았습니다.")
+        tasks = json.loads(content[start : end + 1])
+
+    if not isinstance(tasks, list):
+        raise ValueError("모델 응답이 JSON 배열이 아닙니다.")
+
+    cleaned = [str(item).strip() for item in tasks if str(item).strip()]
+    return cleaned[:count]
+
+
 def build_chunks(documents: list[Document]) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,

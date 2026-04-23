@@ -26,7 +26,7 @@ from github_integration import (
     save_session as save_github_session,
 )
 from loaders import load_documents
-from rag_pipeline import generate_weekly_report
+from rag_pipeline import generate_plausible_manual_tasks, generate_weekly_report
 from slack_integration import (
     SlackOAuthError,
     auth_test as slack_auth_test,
@@ -584,6 +584,44 @@ def _remove_manual_entry(index: int) -> None:
     st.rerun()
 
 
+def _request_plausible_manual_tasks() -> None:
+    st.session_state["manual_no_work_pending"] = True
+    st.session_state["manual_no_work_error"] = ""
+
+
+def _apply_plausible_manual_tasks() -> None:
+    if not st.session_state.get("manual_no_work_pending"):
+        return
+    st.session_state["manual_no_work_pending"] = False
+
+    try:
+        with st.spinner("이번 주 업무 내역을 생성하고 있어요..."):
+            tasks = generate_plausible_manual_tasks(count=3)
+    except Exception as exc:
+        st.session_state["manual_no_work_error"] = _format_report_generation_error(exc)
+        return
+
+    while len(tasks) < 3:
+        tasks.append("")
+    tasks = tasks[:3]
+
+    for key in list(st.session_state.keys()):
+        if not key.startswith("manual_entry_"):
+            continue
+        suffix = key[len("manual_entry_"):]
+        try:
+            idx = int(suffix)
+        except ValueError:
+            continue
+        if idx >= 3:
+            del st.session_state[key]
+
+    for idx, task in enumerate(tasks):
+        st.session_state[f"manual_entry_{idx}"] = task
+
+    st.session_state["manual_entries"] = list(tasks)
+
+
 def _manual_documents(entries: list[str]) -> list[Document]:
     docs: list[Document] = []
     for idx, entry in enumerate(entries, start=1):
@@ -607,6 +645,7 @@ def _render_manual_section() -> list[Document]:
     st.caption("GitHub/Slack에 기록되지 않은 업무가 있으면 직접 입력해 주간보고 근거에 포함합니다.")
 
     _ensure_manual_entries()
+    _apply_plausible_manual_tasks()
     entries = st.session_state["manual_entries"]
 
     list_container = st.container(height=580) if len(entries) > 3 else st.container()
@@ -634,6 +673,44 @@ def _render_manual_section() -> list[Document]:
         use_container_width=True,
         key="manual_add_button",
     )
+
+    st.markdown(
+        """
+        <div class="no-work-button-anchor"></div>
+        <style>
+        div.no-work-button-anchor { display: none; }
+        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
+        div[data-testid="stButton"] > button {
+            background-color: #dc3545;
+            color: #ffffff;
+            border: 1px solid #dc3545;
+        }
+        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
+        div[data-testid="stButton"] > button:hover {
+            background-color: #c82333;
+            color: #ffffff;
+            border-color: #bd2130;
+        }
+        .stElementContainer:has(> div > div.no-work-button-anchor) + .stElementContainer
+        div[data-testid="stButton"] > button:focus {
+            background-color: #c82333;
+            color: #ffffff;
+            border-color: #bd2130;
+            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.35);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.button(
+        "이번 주에 한 일이 없다면?",
+        on_click=_request_plausible_manual_tasks,
+        use_container_width=True,
+        key="manual_no_work_button",
+    )
+
+    if st.session_state.get("manual_no_work_error"):
+        st.error(st.session_state["manual_no_work_error"])
 
     return _manual_documents(st.session_state["manual_entries"])
 
