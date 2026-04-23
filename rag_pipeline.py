@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import uuid
 from typing import TypedDict
 
 from langchain_community.retrievers import BM25Retriever
@@ -68,7 +70,11 @@ def _message_to_text(content) -> str:
     return str(content)
 
 
-def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogleGenerativeAI:
+def _get_llm(
+    api_key: str | None = None,
+    model: str | None = None,
+    temperature: float = 0.05,
+) -> ChatGoogleGenerativeAI:
     resolved_key = api_key or os.getenv("GOOGLE_API_KEY")
     if not resolved_key:
         raise ValueError("GOOGLE_API_KEY가 필요합니다.")
@@ -76,7 +82,7 @@ def _get_llm(api_key: str | None = None, model: str | None = None) -> ChatGoogle
     return ChatGoogleGenerativeAI(
         google_api_key=resolved_key,
         model=model or os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
-        temperature=0.05,
+        temperature=temperature,
     )
 
 
@@ -85,13 +91,24 @@ def generate_plausible_manual_tasks(
     api_key: str | None = None,
     model: str | None = None,
 ) -> list[str]:
-    llm = _get_llm(api_key=api_key, model=model)
+    llm = _get_llm(api_key=api_key, model=model, temperature=1.1)
+    variation_hint = uuid.uuid4().hex[:8]
+    themes = [
+        "기획/요구사항 정리", "설계 문서 작성", "신규 기능 개발", "버그 수정",
+        "코드 리뷰", "테스트 코드 보강", "성능/병목 분석", "운영 이슈 대응",
+        "배포/릴리스 준비", "데이터 분석", "회의/싱크", "외부 협업자 커뮤니케이션",
+        "기술 스터디", "레거시 리팩터링", "문서화/위키 업데이트",
+    ]
+    picked = random.sample(themes, k=min(count, len(themes)))
+    theme_hint = ", ".join(picked)
+
     response = llm.invoke(
         [
             SystemMessage(
                 content=(
                     "당신은 한국 직장인의 한 주간 업무 내역을 자연스럽게 만들어내는 작가다. "
-                    "결과물은 실제 업무를 했다고 해도 무리 없을 만큼 일반적이고 그럴듯해야 한다."
+                    "결과물은 실제 업무를 했다고 해도 무리 없을 만큼 일반적이고 그럴듯해야 한다. "
+                    "매 호출마다 서로 다른 주제·톤·동사 선택으로 다양하게 답한다."
                 )
             ),
             HumanMessage(
@@ -102,7 +119,9 @@ def generate_plausible_manual_tasks(
                     "- 특정 기업명, 프로젝트명, 제품명, 인명은 쓰지 않는다.\n"
                     "- 회의 참석, 문서화, 코드 리뷰, 이슈 대응, 기능 개선, 협업 커뮤니케이션 등이 "
                     "고르게 섞여 한 주 업무처럼 보이도록 다양화한다.\n"
-                    "- 지나치게 모호하지 않되, 누구에게나 해당될 수 있는 수준의 일반 표현을 쓴다.\n\n"
+                    "- 지나치게 모호하지 않되, 누구에게나 해당될 수 있는 수준의 일반 표현을 쓴다.\n"
+                    f"- 이번 호출에서는 다음 주제를 중심으로 서로 겹치지 않게 구성한다: {theme_hint}.\n"
+                    f"- 이전 호출과 동일한 문장을 반복하지 말고 표현을 새로 짠다. (variation_seed={variation_hint})\n\n"
                     "출력 형식:\n"
                     f"- JSON 배열 하나만 출력한다. 길이는 정확히 {count}.\n"
                     "- 각 원소는 업무 내역 문자열 하나.\n"
