@@ -22,8 +22,10 @@ from github_integration import (
     fetch_user_repositories,
     fetch_weekly_commits,
     get_current_week_range as get_github_week_range,
+    is_disconnected as is_github_disconnected,
     load_saved_session as load_github_saved_session,
     save_session as save_github_session,
+    set_disconnected as set_github_disconnected,
 )
 from loaders import load_documents
 from rag_pipeline import generate_plausible_manual_tasks, generate_weekly_report
@@ -76,6 +78,30 @@ def _clear_github_session_state() -> None:
         st.session_state.pop(key, None)
 
 
+def _request_github_logout() -> None:
+    # on_click 콜백: 실제 정리는 다음 스크립트 본문(_process_github_logout)에서 처리한다.
+    # 콜백 시점에는 이번 run의 쿠키 매니저가 아직 생성되기 전이라, 플래그만 세워 둔다.
+    st.session_state["github_logout_pending"] = True
+
+
+def _process_github_logout() -> None:
+    # bootstrap보다 먼저 호출되어야 한다.
+    # 토큰 쿠키(github_session)는 보존하고, "로그아웃 상태" 마커만 쿠키에 기록한다.
+    # → 새로고침에도 로그아웃이 유지되지만, 저장된 토큰으로 OAuth 없이 즉시 재연결 가능.
+    if not st.session_state.pop("github_logout_pending", False):
+        return
+    _clear_github_session_state()
+    set_github_disconnected(True)
+    st.session_state["github_logged_out"] = True
+
+
+def _reconnect_github() -> None:
+    # 저장된 토큰 쿠키로 즉시 재연결(OAuth 리다이렉트 없음). 마커만 해제하면
+    # 다음 bootstrap이 저장된 세션을 복원한다.
+    set_github_disconnected(False)
+    st.session_state.pop("github_logged_out", None)
+
+
 def _clear_slack_session_state(team_id: str | None = None) -> None:
     if team_id is None:
         st.session_state.pop("slack_selected_team_id", None)
@@ -95,7 +121,12 @@ def _clear_slack_session_state(team_id: str | None = None) -> None:
 
 
 def _bootstrap_github_saved_session() -> None:
+    # 이미 이번 세션에서 연결돼 있으면 그대로 둔다.
     if st.session_state.get("github_token") and st.session_state.get("github_user"):
+        return
+    # 이번 세션에서 방금 연결 해제했거나(github_logged_out),
+    # 쿠키에 로그아웃 마커가 남아 있으면(새로고침 이후) 자동 복원하지 않는다.
+    if st.session_state.get("github_logged_out") or is_github_disconnected():
         return
 
     saved = load_github_saved_session()
@@ -147,6 +178,8 @@ def _handle_github_oauth_callback() -> None:
 
     st.session_state["github_token"] = token
     st.session_state["github_user"] = user
+    st.session_state.pop("github_logged_out", None)
+    set_github_disconnected(False)
     st.session_state.pop("github_orgs", None)
     st.session_state.pop("github_repos", None)
     st.session_state.pop("weekly_commits", None)
@@ -416,6 +449,7 @@ def _render_slack_item_list(items) -> None:
 
 def _render_github_section():
     st.subheader("GitHub 연동")
+    _process_github_logout()
     _bootstrap_github_saved_session()
     _handle_github_oauth_callback()
 
@@ -423,6 +457,18 @@ def _render_github_section():
     user = st.session_state.get("github_user")
 
     if not token or not user:
+        # 연결 해제 상태지만 저장된 토큰이 남아 있으면, OAuth 없이 즉시 재연결할 수 있게 한다.
+        saved_session = load_github_saved_session()
+        if saved_session is not None:
+            saved_login = str(saved_session[1].get("login", "저장된 계정"))
+            st.button(
+                f"빠른 재연결 ({saved_login})",
+                key="github_quick_reconnect",
+                use_container_width=True,
+                type="primary",
+                on_click=_reconnect_github,
+            )
+            st.caption("이전에 로그인한 계정으로 GitHub 인증 절차 없이 즉시 다시 연결합니다.")
         try:
             login_url = build_github_login_url()
             st.link_button("GitHub 로그인", login_url, use_container_width=True)
@@ -436,11 +482,12 @@ def _render_github_section():
     with left:
         st.success(f"GitHub 연결됨: {user.get('login')}")
     with right:
-        if st.button("연결 해제", key="github_disconnect", use_container_width=True):
-            _clear_github_session_state()
-            clear_github_saved_session()
-            st.query_params.clear()
-            st.rerun()
+        st.button(
+            "연결 해제",
+            key="github_disconnect",
+            use_container_width=True,
+            on_click=_request_github_logout,
+        )
 
     try:
         orgs = _load_orgs(token)
