@@ -20,10 +20,6 @@ GITHUB_API_BASE = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com/login/oauth"
 KST = ZoneInfo("Asia/Seoul")
 SESSION_COOKIE_KEY = "github_session"
-# "연결 해제" 시 토큰 쿠키는 보존하되(영속 유지), 로그아웃 상태만 이 마커로 표시한다.
-# 쿠키 삭제(__delitem__)는 streamlit-cookies-manager의 prefix 버그로 동작하지 않으므로,
-# 값 설정(__setitem__)만 쓰는 boolean 마커로 우회한다.
-DISCONNECTED_COOKIE_KEY = "github_disconnected"
 
 
 class GitHubOAuthError(RuntimeError):
@@ -167,14 +163,6 @@ def save_session(token: str, user: dict[str, object]) -> None:
 def clear_saved_session() -> None:
     cookie_store.delete_key(SESSION_COOKIE_KEY)
 
-
-def set_disconnected(flag: bool) -> None:
-    # 새로고침에도 유지되도록 쿠키에 로그아웃 상태를 기록한다(토큰 쿠키는 그대로 둔다).
-    cookie_store.save_json(DISCONNECTED_COOKIE_KEY, bool(flag))
-
-
-def is_disconnected() -> bool:
-    return bool(cookie_store.load_json(DISCONNECTED_COOKIE_KEY))
 
 
 def _paginate(url: str, token: str, params: dict[str, object] | None = None) -> list[dict[str, object]]:
