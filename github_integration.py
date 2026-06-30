@@ -249,6 +249,7 @@ def fetch_weekly_commits(token: str, username: str, selected_repo_full_names: se
             f"{GITHUB_API_BASE}/repos/{owner}/{name}/commits",
             token,
             params={
+                "author": username,
                 "since": _to_github_timestamp(week_start),
                 "until": _to_github_timestamp(week_end),
             },
