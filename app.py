@@ -438,10 +438,36 @@ def _render_github_section():
         try:
             login_url = build_github_login_url()
             st.link_button("GitHub 로그인", login_url, use_container_width=True)
-            st.caption("한 번 로그인하면 토큰을 로컬 파일에 저장해 다음 실행에서도 로그인 상태를 유지합니다.")
         except GitHubOAuthError as exc:
             st.warning(str(exc))
             st.caption("`.env`에 `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI`를 설정해야 합니다.")
+
+        st.caption("또는 Personal Access Token으로 연결")
+        pat_input = st.text_input(
+            "PAT",
+            type="password",
+            placeholder="ghp_xxxxxxxxxxxx  (repo 권한 필요)",
+            key="github_pat_input",
+            label_visibility="collapsed",
+        )
+        if st.button("PAT로 연결", key="github_pat_connect", use_container_width=True):
+            if not pat_input:
+                st.error("PAT를 입력해주세요.")
+            else:
+                with st.spinner("PAT 확인 중..."):
+                    try:
+                        verified_user = fetch_authenticated_user(pat_input)
+                        save_github_session(pat_input, verified_user)
+                        st.session_state["github_token"] = pat_input
+                        st.session_state["github_user"] = verified_user
+                        st.rerun()
+                    except requests.HTTPError as exc:
+                        if exc.response is not None and exc.response.status_code in {401, 403}:
+                            st.error("유효하지 않은 PAT입니다. repo 권한이 포함된 토큰인지 확인해주세요.")
+                        else:
+                            st.error(f"GitHub 연결 중 오류가 발생했습니다: {exc}")
+                    except Exception as exc:
+                        st.error(f"GitHub 연결 중 오류가 발생했습니다: {exc}")
         return []
 
     left, right = st.columns([3, 1])
@@ -477,17 +503,24 @@ def _render_github_section():
     st.caption(f"조회 범위: {week_start:%Y-%m-%d %H:%M} ~ {week_end:%Y-%m-%d %H:%M} (Asia/Seoul 기준)")
 
     refresh = st.button("이번 주 커밋 새로고침", key="github_refresh", use_container_width=True)
-    cache_key_changed = st.session_state.get("weekly_commit_cache_key") != week_key
+    selected_repos_key = ",".join(sorted(selected_repos))
+    effective_cache_key = f"{week_key}|{selected_repos_key}"
+    cache_key_changed = st.session_state.get("weekly_commit_cache_key") != effective_cache_key
     if cache_key_changed:
         st.session_state.pop("all_weekly_commits", None)
         st.session_state.pop("github_selected_commit_shas", None)
         st.session_state.pop("github_seen_commit_shas", None)
-        st.session_state["weekly_commit_cache_key"] = week_key
+        st.session_state["weekly_commit_cache_key"] = effective_cache_key
 
     if refresh or "all_weekly_commits" not in st.session_state:
         with st.spinner("GitHub에서 커밋 메시지를 가져오는 중입니다."):
             try:
-                all_commits = fetch_weekly_commits(token, str(user["login"]))
+                all_commits = fetch_weekly_commits(
+                    token,
+                    str(user["login"]),
+                    repos=repos,
+                    selected_repo_full_names=selected_repos,
+                )
             except requests.HTTPError as exc:
                 if exc.response is not None and exc.response.status_code in {401, 403}:
                     clear_github_saved_session()
@@ -502,8 +535,7 @@ def _render_github_section():
 
             st.session_state["all_weekly_commits"] = all_commits
 
-    all_commits = st.session_state.get("all_weekly_commits", [])
-    commits = [commit for commit in all_commits if commit.repo_full_name in selected_repos]
+    commits = st.session_state.get("all_weekly_commits", [])
     st.session_state["weekly_commits"] = commits
 
     if not commits:

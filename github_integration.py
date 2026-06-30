@@ -221,9 +221,15 @@ def _to_github_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_weekly_commits(token: str, username: str, selected_repo_full_names: set[str] | None = None) -> list[CommitInfo]:
+def fetch_weekly_commits(
+    token: str,
+    username: str,
+    repos: list[dict[str, object]] | None = None,
+    selected_repo_full_names: set[str] | None = None,
+) -> list[CommitInfo]:
     week_start, week_end = get_current_week_range()
-    repos = fetch_user_repositories(token)
+    if repos is None:
+        repos = fetch_user_repositories(token)
 
     commits: list[CommitInfo] = []
     seen: set[str] = set()
