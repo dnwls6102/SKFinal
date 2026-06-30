@@ -161,7 +161,7 @@ def save_session(token: str, user: dict[str, object]) -> None:
 
 
 def clear_saved_session() -> None:
-    cookie_store.delete_key(SESSION_COOKIE_KEY)
+    cookie_store.save_json(SESSION_COOKIE_KEY, None)
 
 
 
